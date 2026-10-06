@@ -35,7 +35,10 @@ func testSubscriptionClients(ctx context.Context, st *store.Store, d *desired.Bu
 	token := auth.NewSubscriptionToken()
 	sub := domain.Subscription{Name: "generated fixture", Kind: domain.SubGenerated, Enabled: true, Token: token, TokenHash: auth.HashToken(token), TemplateID: &tpl.ID, NodeSelection: domain.NodeSelection{NodeIDs: ids}}
 	must(st.CreateSubscription(ctx, &sub))
-	sh := domain.Share{Name: "all protocols share", TemplateID: &tpl.ID, Targets: []domain.ShareTarget{{ServerID: server.ID, Protocols: protocols}}}
+	// A user's profile comes from their rule set, not from a template.
+	rules := domain.Ruleset{Name: "offline subscription qualification", SingBox: tpl.Content}
+	must(st.CreateRuleset(ctx, &rules))
+	sh := domain.Share{Name: "all protocols share", RulesetID: &rules.ID, Targets: []domain.ShareTarget{{ServerID: server.ID, Protocols: protocols}}}
 	shareToken, e := shares.Create(ctx, &sh)
 	must(e)
 	// Reality handshakes must resolve through the offline fixture DNS.

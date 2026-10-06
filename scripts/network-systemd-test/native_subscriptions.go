@@ -33,7 +33,9 @@ func testNativeSubscriptions(ctx context.Context, st *store.Store, d *desired.Bu
 		token := auth.NewSubscriptionToken()
 		sub := domain.Subscription{Name: "native-generated", Kind: domain.SubGenerated, Enabled: true, Token: token, TokenHash: auth.HashToken(token), TemplateID: &template.ID, NodeSelection: domain.NodeSelection{NodeIDs: []int64{node.ID}}}
 		must(st.CreateSubscription(ctx, &sub))
-		sh := domain.Share{Name: "native-share-" + protocol, TemplateID: &template.ID, Targets: []domain.ShareTarget{{ServerID: server.ID, Protocols: []string{protocol}}}}
+		rules := domain.Ruleset{Name: "native-export-" + protocol, Mihomo: template.Content}
+		must(st.CreateRuleset(ctx, &rules))
+		sh := domain.Share{Name: "native-share-" + protocol, RulesetID: &rules.ID, Targets: []domain.ShareTarget{{ServerID: server.ID, Protocols: []string{protocol}}}}
 		shared, e := shares.Create(ctx, &sh)
 		must(e)
 		rec, e := st.LatestDesiredState(ctx, server.ID)
