@@ -143,6 +143,7 @@ type serverInput struct {
 	IPv4Only      bool     `json:"ipv4_only"`
 	PreferIPv6    bool     `json:"prefer_ipv6"`
 	IngressAck    bool     `json:"ingress_ack"`
+	StrictSource  bool     `json:"strict_source"`
 	CertMode      string   `json:"cert_mode"`
 	Enabled       *bool    `json:"enabled"`
 }
@@ -188,6 +189,7 @@ func (in serverInput) apply(s *domain.Server) error {
 	}
 	s.PreferIPv6 = in.PreferIPv6
 	s.IngressAck = in.IngressAck
+	s.StrictSource = in.StrictSource
 	if in.Enabled != nil {
 		s.Enabled = *in.Enabled
 	}

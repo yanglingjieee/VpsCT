@@ -98,11 +98,15 @@ type Server struct {
 	// IngressAck: another firewall on the host filters inbound traffic and the
 	// administrator opens node ports there, so the agent neither edits rules
 	// nor reports that it cannot.
-	IngressAck bool      `json:"ingress_ack"`
-	CertMode   string    `json:"cert_mode"` // self_signed|acme|external
-	Enabled    bool      `json:"enabled"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	IngressAck bool `json:"ingress_ack"`
+	// StrictSource: as a landing, accept relay credentials only from the
+	// entry server\'s address. Off by default: a host behind address
+	// translation never sees that address and would refuse every relay.
+	StrictSource bool      `json:"strict_source"`
+	CertMode     string    `json:"cert_mode"` // self_signed|acme|external
+	Enabled      bool      `json:"enabled"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // AgentStatus is derived from the last heartbeat.
@@ -599,18 +603,15 @@ const (
 	SettingConnlogRetention = "connlog.retention_days"
 	SettingAggRetention     = "connlog.aggregate_retention_days"
 	SettingConnlogSelf      = "connlog.self_enabled"
-	// SettingLandingSourceCheck (default on) accepts a landing credential only
-	// from the entry servers of its lines.
-	SettingLandingSourceCheck = "lines.landing_source_check"
-	SettingSampleRetention    = "traffic.sample_retention_hours"
-	SettingHourlyRetention    = "traffic.hourly_retention_days"
-	SettingAccessRetention    = "access_log.retention_days"
-	SettingAgentOfflineSec    = "agent.offline_after_seconds"
-	SettingQuotaAlertPct      = "quota.alert_percent"
-	SettingSingBoxVersion     = "core.singbox_version"
-	SettingSnellVersion       = "core.snell_version"
-	SettingMitaVersion        = "core.mita_version"
-	SettingRateLimitPerMin    = "security.subscription_rate_per_min"
+	SettingSampleRetention  = "traffic.sample_retention_hours"
+	SettingHourlyRetention  = "traffic.hourly_retention_days"
+	SettingAccessRetention  = "access_log.retention_days"
+	SettingAgentOfflineSec  = "agent.offline_after_seconds"
+	SettingQuotaAlertPct    = "quota.alert_percent"
+	SettingSingBoxVersion   = "core.singbox_version"
+	SettingSnellVersion     = "core.snell_version"
+	SettingMitaVersion      = "core.mita_version"
+	SettingRateLimitPerMin  = "security.subscription_rate_per_min"
 )
 
 // Protocol identifiers (Clash/mihomo spelling).

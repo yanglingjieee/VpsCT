@@ -185,7 +185,7 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 			switch {
 			case n.Landing:
 				landingOnly[n.ID] = true
-				spec.AllowFrom = b.landingSources(ctx, n, line)
+				spec.AllowFrom = b.landingSources(ctx, server, n, line)
 			case line.LandingNodeID != nil:
 				// Without its landing a relay member would leave from this
 				// server, which is a different line: refuse instead.
@@ -410,10 +410,11 @@ func Hash(ds *agentproto.DesiredState) string {
 }
 
 // landingSources is where a landing credential may be used from: the entry
-// server of its line. It returns nil (no restriction) unless both addresses
-// are literal IPv4, the only case where the entry's source is certain.
-func (b *Builder) landingSources(ctx context.Context, member domain.Node, line domain.Line) []string {
-	if !b.Store.GetSettingBool(ctx, domain.SettingLandingSourceCheck, true) {
+// server of its line, when the landing server asks for that check. It needs
+// both addresses to be literal IPv4, the only case where the entry's source
+// is certain; otherwise the credential stays unrestricted.
+func (b *Builder) landingSources(ctx context.Context, landing domain.Server, member domain.Node, line domain.Line) []string {
+	if !landing.StrictSource {
 		return nil
 	}
 	ipv4 := func(host string) (string, bool) {

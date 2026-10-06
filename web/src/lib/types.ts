@@ -184,6 +184,7 @@ export interface Server {
   ipv4_only: boolean;
   prefer_ipv6: boolean;
   ingress_ack: boolean;
+  strict_source: boolean;
   cert_mode: string;
   enabled: boolean;
   created_at: string;

@@ -31,7 +31,7 @@ func lineSetup(t *testing.T) *lineFixture {
 	ctx := context.Background()
 	f := &lineFixture{m: m, st: st, now: now, servers: map[string]domain.Server{"vmiss": vmiss}, nodes: map[string]domain.Node{}}
 	for name, host := range map[string]string{"hk": "8.0.0.1", "att": "99.0.0.1"} {
-		s := domain.Server{Name: name + "-server", PublicHost: host, Enabled: true, CoreMode: domain.CoreModeStable}
+		s := domain.Server{Name: name + "-server", PublicHost: host, Enabled: true, CoreMode: domain.CoreModeStable, StrictSource: name == "att"}
 		if err := st.CreateServer(ctx, &s); err != nil {
 			t.Fatal(err)
 		}
@@ -331,6 +331,22 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 	now := f.members(t, *yang)
 	if r := f.desired(t, "hk")[now["ATT via HK"].ID].Relay; r == nil || r.PublicKey != param(t, parent.ServerParams, "reality_public_key") || r.UUID != uuidOf(t, ym["ATT via HK/landing"]) {
 		t.Fatalf("entry did not follow its landing: %+v", r)
+	}
+
+	// A landing behind address translation never sees the entry's address:
+	// the check is the landing server's choice.
+	nat := f.servers["att"]
+	nat.StrictSource = false
+	if err := f.st.UpdateServer(ctx, &nat); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.SyncLines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range f.desired(t, "att") {
+		if len(n.AllowFrom) != 0 {
+			t.Fatalf("source check must follow the landing server: %+v", n)
+		}
 	}
 
 	// Removing the landing listener removes its lines and every credential
