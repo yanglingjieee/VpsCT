@@ -17,7 +17,7 @@ import (
 	"ctlvps/internal/agentnet"
 )
 
-const officialReleaseBase = "https://github.com/YongshengWin/VpsCT/releases/"
+const officialReleaseBase = "https://github.com/yanglingjieee/VpsCT/releases/"
 
 var releaseTag = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$`)
 

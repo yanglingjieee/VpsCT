@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func TestTwoFactorLoginFlow(t *testing.T) {
 	c.do("POST", "/api/v1/auth/2fa/setup", map[string]any{"password": "wrong"}, 400)
 	st := c.do("POST", "/api/v1/auth/2fa/setup", map[string]any{"password": "password123"}, 200)
 	secret := st["secret"].(string)
-	if !strings.HasPrefix(st["otpauth_url"].(string), "otpauth://totp/VpsCT:admin?") {
+	if !strings.HasPrefix(st["otpauth_url"].(string), "otpauth://totp/"+url.PathEscape(defaultSiteName)+":admin?") {
 		t.Fatalf("otpauth: %v", st["otpauth_url"])
 	}
 	me := c.do("GET", "/api/v1/auth/me", nil, 200)

@@ -16,7 +16,7 @@ helper=P("/assets")/f"ctlvps-verify-linux-{arch}"
 for p in [old,new,helper]:shutil.copyfile(p,work/p.name)
 with tarfile.open(new) as t:version=t.extractfile('VERSION').read().decode().strip()
 P(work/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in work.iterdir() if p.is_file()))
-run('bash','/legacy/install.sh','--version','v0.1.1','--repo','YongshengWin/VpsCT','--assets-dir',str(work),'--site-url','https://panel.fixture.test','--no-proxy')
+run('bash','/legacy/install.sh','--version','v0.1.1','--repo','yanglingjieee/VpsCT','--assets-dir',str(work),'--site-url','https://panel.fixture.test','--no-proxy')
 cookie=''
 def request(path,body=None):
  global cookie
@@ -44,7 +44,7 @@ with tarfile.open(bad_tar,'w:gz') as t:
  for p in bad_dir.iterdir():t.add(p,arcname=p.name)
 with (work/'SHA256SUMS').open('a') as f:f.write(hashlib.sha256(bad_tar.read_bytes()).hexdigest()+'  '+bad_tar.name+'\n')
 
-base=['bash','/assets/install.sh','--repo','YongshengWin/VpsCT','--assets-dir',str(work),'--update','--auto-rollback']
+base=['bash','/assets/install.sh','--repo','yanglingjieee/VpsCT','--assets-dir',str(work),'--update','--auto-rollback']
 helper_copy=work/helper.name
 original_helper=helper_copy.read_bytes()
 helper_copy.write_bytes(b'corrupt helper')
@@ -80,7 +80,7 @@ print("KEYLESS PASS: no publisher keys, trust root, metadata server or preinstal
 
 # A fresh controller install must also work without publisher configuration.
 run('bash','/src/uninstall.sh','--controller','--purge','--yes')
-run('bash','/assets/install.sh','--repo','YongshengWin/VpsCT','--assets-dir',str(work),'--site-url','https://panel.fixture.test','--no-proxy')
+run('bash','/assets/install.sh','--repo','yanglingjieee/VpsCT','--assets-dir',str(work),'--site-url','https://panel.fixture.test','--no-proxy')
 assert request('/api/v1/auth/setup')['needs_setup'] is True
 assert not P('/etc/ctlvps/security.json').exists()
 print('FRESH PASS: new controller installed without signing keys or policy.',flush=True)
@@ -120,7 +120,7 @@ enroll=request(f"/api/v1/servers/{server['id']}/enroll-token",{})
 P('/usr/local/bin/curl').write_text("""#!/usr/bin/python3
 import os,sys,pathlib,shutil
 args=sys.argv[1:]
-urls=[s for s in args if s.startswith('https://github.com/YongshengWin/VpsCT/releases/download/')]
+urls=[s for s in args if s.startswith('https://github.com/yanglingjieee/VpsCT/releases/download/')]
 if urls:
  name=urls[0].rsplit('/',1)[1]
  source=pathlib.Path('/fixtures/agent-overrides')/name

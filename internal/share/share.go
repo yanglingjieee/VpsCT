@@ -78,9 +78,10 @@ func (m *Manager) Create(ctx context.Context, sh *domain.Share) (string, error) 
 		sub.OwnerUserID = *sh.UserID
 		sub.AllowedUserIDs = []int64{*sh.UserID}
 	}
-	if m.Store.GetSettingBool(ctx, domain.SettingShortLinks, true) {
-		sub.ShortCode = auth.NewSubscriptionToken()
-	}
+	// A user's own link is typed, pasted and scanned: 24 unambiguous
+	// characters carry about 140 bits, far beyond guessing, in a tenth of
+	// the length of the full token.
+	sub.ShortCode = auth.ShortCode(24)
 	if err := m.Store.CreateSubscription(ctx, sub); err != nil {
 		return "", err
 	}
@@ -467,9 +468,7 @@ func (m *Manager) Reissue(ctx context.Context, id int64) (string, error) {
 		sub.TokenHash = auth.HashToken(token)
 		sub.TokenHint = auth.TokenHint(token)
 		sub.Enabled = true
-		if sub.ShortCode != "" {
-			sub.ShortCode = auth.NewSubscriptionToken()
-		}
+		sub.ShortCode = auth.ShortCode(24)
 		if err := m.Store.UpdateSubscription(ctx, &sub); err != nil {
 			return "", err
 		}

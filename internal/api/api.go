@@ -86,7 +86,7 @@ type API struct {
 const (
 	sessionCookie = "ctlvps_session"
 	// defaultSiteName is the product name shown until an admin sets site.name.
-	defaultSiteName = "VpsCT"
+	defaultSiteName = "土豆饼的家"
 )
 
 // New builds the API and registers routes.

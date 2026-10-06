@@ -1,24 +1,19 @@
-import { ConfigStatusNotice, configurationState } from "@/components/config-status";
+import { ConfigStatusNotice } from "@/components/config-status";
 import * as React from "react";
 import { MaintenancePanel } from "@/components/maintenance";
 import { ServerActions } from "@/components/server-actions";
-import { ServerNetwork } from "@/components/server-network";
-import { ServerForwards } from "@/components/server-forwards";
-import { ServerEgress } from "@/components/server-egress";
-import { ServerRoutes } from "@/components/server-routes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Copy, KeyRound, Plus, RefreshCw, Trash2, Pencil, Cpu, MemoryStick, Wifi, ShieldCheck, AlertTriangle, Wrench } from "lucide-react";
+import { Copy, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
 import { get, post, put } from "@/lib/api";
 import type { Server, Node, Series } from "@/lib/types";
-import { fmtBytes, fmtAgo, fmtDuration, fmtRate, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, fmtDate, defaultNodeName } from "@/lib/utils";
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Confirm, Dialog, Empty, Field, Input, PageHeader, Progress, Select, Spinner, Switch, Table, Td, Th, Tr, Textarea, Code, Pre, Tabs } from "@/components/ui";
+import { fmtBytes, fmtAgo, fmtDuration, fmtRate, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, fmtDate } from "@/lib/utils";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Confirm, Dialog, Empty, Field, Input, PageHeader, Progress, Select, Spinner, Switch, Table, Td, Th, Tr, Textarea, Pre, Tabs } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { ResetDayInput } from "@/components/datetime-picker";
 import { TrafficBars, RateArea } from "@/components/charts";
 import { nicIO, TrafficIO } from "@/components/traffic-ways";
-import { useAuth } from "@/lib/auth";
-import { NodeRow, NodeDetailDialog } from "@/pages/nodes";
+import { ServerCard } from "@/components/server-card";
 
 // ---------- shared form ----------
 interface ServerForm {
@@ -31,19 +26,20 @@ interface ServerForm {
   quota_reset_day: string;
   quota_billing: string;
   core_mode: string;
-  ipv4_only: boolean;
+  ip_pref: "ipv4" | "ipv6" | "ipv4_only";
+  ingress_ack: boolean;
   cert_mode: string;
   enabled: boolean;
 }
 
-const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", core_mode: "stable", ipv4_only: false, cert_mode: "self_signed", enabled: true };
+const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", core_mode: "lean", ip_pref: "ipv4", ingress_ack: false, cert_mode: "self_signed", enabled: true };
 
 function toForm(s: Server): ServerForm {
-  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, core_mode: s.core_mode, ipv4_only: s.ipv4_only, cert_mode: s.cert_mode, enabled: s.enabled };
+  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, core_mode: s.core_mode, ip_pref: s.ipv4_only ? "ipv4_only" : s.prefer_ipv6 ? "ipv6" : "ipv4", ingress_ack: s.ingress_ack, cert_mode: s.cert_mode, enabled: s.enabled };
 }
 
 function toPayload(f: ServerForm) {
-  return { ...f, tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), quota_bytes: gbToBytes(f.quota_gb), quota_reset_day: parseResetDay(f.quota_reset_day) };
+  return { ...f, ipv4_only: f.ip_pref === "ipv4_only", prefer_ipv6: f.ip_pref === "ipv6", tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), quota_bytes: gbToBytes(f.quota_gb), quota_reset_day: parseResetDay(f.quota_reset_day) };
 }
 
 export function ServerDialog({ open, onClose, server }: { open: boolean; onClose: () => void; server?: Server }) {
@@ -66,7 +62,7 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
       open={open}
       onClose={onClose}
       title={server ? "编辑服务器" : "添加服务器"}
-      description="添加后生成注册令牌，在 VPS 上一键安装 agent。"
+      description="添加后生成安装命令，在这台机器上执行一次即可接入。只做监控不建入站也可以。"
       footer={
         <>
           <Button variant="outline" onClick={onClose}>取消</Button>
@@ -80,23 +76,17 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
         <Field label="公网地址" hint="留空则使用 agent 上报的 IP" className="sm:col-span-2"><Input value={f.public_host} onChange={(e) => set("public_host", e.target.value)} placeholder="1.2.3.4 或 hk.example.com" /></Field>
         <Field label="月流量配额 (GiB)" hint="0 为不限"><Input type="number" min={0} step="0.1" value={f.quota_gb} onChange={(e) => set("quota_gb", e.target.value)} /></Field>
         <Field label="重置日" hint="1–28 固定那天；29/30/31 都是每月最后一天。不选则按近 30 天滚动。"><ResetDayInput value={f.quota_reset_day} onChange={(v) => set("quota_reset_day", v)} /></Field>
-        <Field label="内核模式" hint="精简模式不支持 Snell">
-          <Select value={f.core_mode} onChange={(e) => set("core_mode", e.target.value)}>
-            <option value="stable">稳定（sing-box + snell）</option>
-            <option value="lean">精简（仅 sing-box）</option>
-          </Select>
-        </Field>
-        <Field label="证书模式" hint="AnyTLS/Hy2/TUIC/Trojan 使用">
-          <Select value={f.cert_mode} onChange={(e) => set("cert_mode", e.target.value)}>
-            <option value="self_signed">自签名（客户端跳过验证）</option>
-            <option value="acme">ACME 自动签发（需域名 + 80 端口）</option>
-            <option value="external">外部证书文件</option>
+        <Field label="出口 IP 偏好" hint="目标同时有 IPv4 和 IPv6 时用哪个">
+          <Select value={f.ip_pref} onChange={(e) => set("ip_pref", e.target.value as ServerForm["ip_pref"])}>
+            <option value="ipv4">优先 IPv4</option>
+            <option value="ipv6">优先 IPv6</option>
+            <option value="ipv4_only">只用 IPv4（这台机器没有可用的 IPv6）</option>
           </Select>
         </Field>
         <Field label="标签" hint="逗号分隔"><Input value={f.tags} onChange={(e) => set("tags", e.target.value)} /></Field>
         <div className="flex flex-col gap-3 sm:col-span-2">
-          <Switch checked={f.ipv4_only} onChange={(v) => set("ipv4_only", v)} label="出站仅 IPv4（避免 IPv6 抖动）" />
-          <Switch checked={f.enabled} onChange={(v) => set("enabled", v)} label="启用（关闭后 agent 停止所有节点）" />
+          <Switch checked={f.ingress_ack} onChange={(v) => set("ingress_ack", v)} label="这台机器上另有防火墙，节点端口由我自己放行（不再提示）" />
+          <Switch checked={f.enabled} onChange={(v) => set("enabled", v)} label="启用（关闭后这台机器上的入站全部停止）" />
         </div>
         <Field label="备注" className="sm:col-span-2"><Textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} /></Field>
       </div>
@@ -122,7 +112,7 @@ export function ServersPage() {
   const stale = (q.data ?? []).filter((s) => s.agent_update?.outdated).length;
   return (
     <div>
-      <PageHeader title="服务器" description="受 agent 管理的 VPS，按端口计量流量并部署节点" actions={
+      <PageHeader title="服务器" description="状态、负载和流量；在线情况变化会通过 Telegram 通知" actions={
         <>
           {stale > 0 && (
             <Button variant="outline" onClick={() => checkAgentUpdates.mutate()} loading={checkAgentUpdates.isPending} title="检查与控制端提供的 agent 版本是否一致；有差异时会随心跳自动更新">
@@ -135,43 +125,9 @@ export function ServersPage() {
       {q.isLoading ? (
         <Spinner />
       ) : !q.data?.length ? (
-        <Empty title="还没有服务器" description="添加一台 VPS，然后用生成的命令安装 agent。" action={<Button onClick={() => setCreate(true)}>添加服务器</Button>} />
+        <Empty title="还没有服务器" description="添加一台机器，然后用生成的命令安装 agent。" action={<Button onClick={() => setCreate(true)}>添加服务器</Button>} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {q.data.map((s) => (
-            <Link key={s.id} to={`/servers/${s.id}`} className="block min-w-0">
-              <Card className="h-full p-4 transition-colors hover:bg-accent/30">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="break-words font-medium">{s.name}</p>
-                    <p className="break-words text-xs text-muted-foreground">{s.public_host || s.agent?.public_ipv4 || "等待 agent 上报"} {s.region && `· ${s.region}`}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <AgentStatusBadge s={s.agent_status} />
-                    {s.agent_update?.outdated ? <Badge variant="secondary">agent 待自动同步</Badge> : null}
-                    {s.agent && !s.agent_update?.supported ? <Badge variant="secondary">需手动更新</Badge> : null}
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1"><Cpu className="h-3 w-3" /> {s.metrics ? `${s.metrics.cpu_percent.toFixed(0)}%` : "-"}</span>
-                  <span className="inline-flex items-center gap-1"><MemoryStick className="h-3 w-3" /> {s.metrics?.mem_total ? `${((s.metrics.mem_used / s.metrics.mem_total) * 100).toFixed(0)}%` : "-"}</span>
-                  <span className="inline-flex items-center gap-1"><Wifi className="h-3 w-3" /> {s.metrics ? fmtRate(s.metrics.net_rx_rate + s.metrics.net_tx_rate) : "-"}</span>
-                </div>
-                <div className="mt-3">
-                  <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                    <span>本期汇总 {fmtBytes(nicIO(s.usage?.up, s.usage?.down).total)}{s.quota_bytes > 0 && ` · 配额 ${fmtBytes(s.usage?.billed)} / ${fmtBytes(s.quota_bytes)}`}</span>
-                    <span>{s.node_count} 节点</span>
-                  </div>
-                  <Progress value={s.quota_bytes > 0 ? s.usage?.percent ?? 0 : 0} />
-                  <TrafficIO className="mt-1.5" compact inbound={s.usage?.inbound ?? s.usage?.up} outbound={s.usage?.outbound ?? s.usage?.down} />
-                </div>
-                {(s.desired && !s.desired.in_sync) || s.agent?.apply_error ? (
-                  <p className="mt-2 inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3 w-3" /> {configurationState(s)?.title || "等待同步节点设置"}</p>
-                ) : null}
-              </Card>
-            </Link>
-          ))}
-        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{q.data.map((s) => <ServerCard key={s.id} s={s} />)}</div>
       )}
       <ServerDialog open={create} onClose={() => setCreate(false)} />
     </div>
@@ -193,11 +149,10 @@ export function ServerDetailPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const { meta } = useAuth();
   const q = useQuery({ queryKey: ["servers", id], queryFn: () => get<Server>(`/api/v1/servers/${id}`), refetchInterval: 10000 });
   const [trafficDays, setTrafficDays] = React.useState(30);
   const [trafficSelection, setTrafficSelection] = React.useState({ serverID: id, nodeID: "server" });
-  const nodes = useQuery({ queryKey: ["nodes", { server_id: id }], queryFn: () => get<Node[]>(`/api/v1/nodes?server_id=${id}&include_revoked=1`) });
+  const nodes = useQuery({ queryKey: ["nodes", { server_id: id }], queryFn: () => get<Node[]>(`/api/v1/nodes?server_id=${id}&members=1`), refetchInterval: 60000 });
   const trafficNode = trafficSelection.serverID === id
     ? nodes.data?.find((n) => String(n.id) === trafficSelection.nodeID)
     : undefined;
@@ -212,17 +167,14 @@ export function ServerDetailPage() {
   const samples = useQuery({ queryKey: ["servers", id, "samples"], queryFn: () => get<{ ts: string; rx_rate: number; tx_rate: number }[]>(`/api/v1/servers/${id}/samples?hours=24`), refetchInterval: 60000 });
   const desired = useQuery({ queryKey: ["servers", id, "desired"], queryFn: () => get<Revision[]>(`/api/v1/servers/${id}/desired?limit=5`) });
   const [edit, setEdit] = React.useState(false);
-  const [deploy, setDeploy] = React.useState(false);
   const [enroll, setEnroll] = React.useState<{ token: string; install_command: string; expires_at: string } | null>(null);
   const [confirmDel, setConfirmDel] = React.useState(false);
   const [confirmReset, setConfirmReset] = React.useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  type ServerTab = "nodes" | "routes" | "network" | "egress" | "forwards" | "diag" | "revisions";
+  type ServerTab = "nodes" | "diag" | "revisions";
   const selectedTab = searchParams.get("tab");
-  const tab: ServerTab = ["nodes", "routes", "network", "egress", "forwards", "diag", "revisions"].includes(selectedTab ?? "") ? selectedTab as ServerTab : "nodes";
+  const tab: ServerTab = ["nodes", "diag", "revisions"].includes(selectedTab ?? "") ? selectedTab as ServerTab : "nodes";
   const setTab = (value: ServerTab) => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set("tab", value); return next; }, { replace: true });
-  const routeTab = tab === "routes" || tab === "network" || tab === "egress" || tab === "forwards";
-  const [nodeDetail, setNodeDetail] = React.useState<Node | null>(null);
   const [maintenanceOpen, setMaintenanceOpen] = React.useState(false);
   const [maintenanceBusy, setMaintenanceBusy] = React.useState(false);
 
@@ -260,7 +212,6 @@ export function ServerDetailPage() {
           <>
             <AgentStatusBadge s={s.agent_status} />
             {s.agent_status === "pending" && <Button size="sm" onClick={() => enrollM.mutate()} loading={enrollM.isPending}><KeyRound className="h-4 w-4" /> 生成安装命令</Button>}
-            <Button size="sm" variant="outline" onClick={() => setDeploy(true)}><Plus className="h-4 w-4" /> 部署节点</Button>
             <Button size="sm" variant="outline" onClick={() => setEdit(true)}><Pencil className="h-4 w-4" /> 编辑</Button>
             <ServerActions items={[
               { label: "agent 维护", icon: <Wrench className="h-4 w-4" />, onClick: () => setMaintenanceOpen(true) },
@@ -288,7 +239,7 @@ export function ServerDetailPage() {
       )}
 
       <div className="mt-6">
-        <Tabs value={routeTab ? "routes" : tab} onChange={setTab} items={[{ value: "nodes", label: `节点与概览 (${nodes.data?.filter((n) => !n.revoked).length ?? 0})` }, { value: "routes", label: "节点线路" }, { value: "diag", label: "诊断" }, { value: "revisions", label: "配置版本" }]} />
+        <Tabs value={tab} onChange={setTab} items={[{ value: "nodes", label: "概览" }, { value: "diag", label: "诊断" }, { value: "revisions", label: "配置版本" }]} />
       </div>
 
       {tab === "nodes" && <>
@@ -306,7 +257,7 @@ export function ServerDetailPage() {
             <div className="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
               <Select aria-label="流量统计对象" value={trafficSubject} onChange={(e) => setTrafficSelection({ serverID: id, nodeID: e.target.value })}>
                 <option value="server">整台服务器</option>
-                {(nodes.data ?? []).map((n) => <option key={n.id} value={String(n.id)}>{n.name} · {PROTOCOL_LABELS[n.protocol] ?? n.protocol}{n.revoked ? "（已撤销）" : ""}</option>)}
+                {(nodes.data ?? []).filter((n) => !n.attach_node_id).map((n) => <option key={n.id} value={String(n.id)}>入站 {n.name} · {PROTOCOL_LABELS[n.protocol] ?? n.protocol} :{n.listen_port}</option>)}
               </Select>
               <Select aria-label="服务器流量时间范围" value={trafficDays} onChange={(e) => setTrafficDays(Number(e.target.value))}>
                 {[7, 30, 90].map((days) => <option key={days} value={days}>近 {days} 天</option>)}
@@ -319,7 +270,7 @@ export function ServerDetailPage() {
               : traffic.data?.has_data ? <><TrafficIO inbound={traffic.data.total_up} outbound={traffic.data.total_down} /><TrafficBars points={traffic.data.points} /></>
               : <p className="text-sm text-muted-foreground">暂无用量记录</p>}
             <p className="text-xs text-muted-foreground">{trafficNode
-              ? "当前只显示所选节点的入站和出站流量。仅汇总已采集记录。"
+              ? "当前只显示经过所选入站的流量。仅汇总已采集记录。"
               : "服务器按网卡收发计量，包含 SSH、系统更新等流量，与节点合计不必相等。仅汇总已采集记录。"}</p>
             {nodes.isError && <p className="mt-2 text-xs text-destructive">节点列表加载失败，暂时只能查看整台服务器。</p>}
           </CardContent>
@@ -354,28 +305,7 @@ export function ServerDetailPage() {
       )}
       </>}
 
-      {tab === "routes" && <ServerRoutes server={s} onNavigate={setTab} />}
-      {routeTab && tab !== "routes" && <div className="mt-5">
-        <Button size="sm" variant="outline" onClick={() => setTab("routes")}>← 返回节点线路</Button>
-        <h2 className="mt-4 text-lg font-semibold">{tab === "network" ? "看网卡和流量" : tab === "egress" ? "连接已有代理" : "转发固定端口"}</h2>
-      </div>}
-
-      {tab === "nodes" && (
-        <div className="mt-4">
-          {!nodes.data?.length ? (
-            <Empty title="尚未部署节点" description="点击「部署节点」在这台服务器上创建 VLESS Reality、Hysteria2、Snell 等入口。" action={<Button onClick={() => setDeploy(true)}>部署节点</Button>} />
-          ) : (
-            <Table>
-              <thead><tr className="border-b"><Th>名称</Th><Th>协议</Th><Th>地址</Th><Th>归属</Th><Th>近 30 天用量</Th><Th>状态</Th><Th></Th></tr></thead>
-              <tbody>{nodes.data.map((n) => <NodeRow key={n.id} n={n} onOpen={() => setNodeDetail(n)} configurationHint={!n.revoked && n.enabled ? configurationState(s, republish.isPending)?.title : undefined} />)}</tbody>
-            </Table>
-          )}
-        </div>
-      )}
-
-      {tab === "network" && <ServerNetwork server={s} />}
-      {tab === "egress" && <ServerEgress key={s.id} server={s} />}
-      {tab === "forwards" && <ServerForwards key={s.id} server={s} />}
+      {tab === "nodes" && <ServerProxyUsage nodes={nodes.data ?? []} />}
 
       {tab === "diag" && (
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -470,7 +400,6 @@ export function ServerDetailPage() {
       )}
 
       <ServerDialog open={edit} onClose={() => setEdit(false)} server={s} />
-      <DeployDialog open={deploy} onClose={() => setDeploy(false)} server={s} protocols={meta?.protocols ?? []} />
       <Dialog open={!!enroll} onClose={() => setEnroll(null)} title="安装 agent" description="先从独立可信发行渠道安装验证器、安装脚本和本机策略，再以 root 执行以下命令。令牌 15 分钟有效，仅可使用一次。">
         {enroll && (
           <div className="space-y-3">
@@ -481,7 +410,6 @@ export function ServerDetailPage() {
         )}
       </Dialog>
       <Confirm open={confirmReset} onClose={() => setConfirmReset(false)} onConfirm={() => resetTok.mutate()} destructive title="吊销 agent 令牌？" description="agent 将无法继续通信，需要重新生成安装命令并注册。" />
-      <NodeDetailDialog node={nodeDetail} onClose={() => setNodeDetail(null)} />
     </div>
   );
 }
@@ -495,56 +423,61 @@ function Diag({ ok, label, warnOnly }: { ok: boolean; label: string; warnOnly?: 
   );
 }
 
-function DeployDialog({ open, onClose, server, protocols }: { open: boolean; onClose: () => void; server: Server; protocols: string[] }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [f, setF] = React.useState({ protocol: "vless", name: "", port: "", sni: "", domain: "", obfs: false, snell_version: 4, mieru_transport: "TCP", cert_mode: "", cert_id: "" });
-  const set = (k: string, v: unknown) => setF((p) => ({ ...p, [k]: v }));
-  const m = useMutation({
-    mutationFn: () => post<Node>(`/api/v1/servers/${server.id}/nodes`, { ...f, port: Number(f.port) || 0, snell_version: Number(f.snell_version) }),
-    onSuccess: () => { toast.success("节点已创建，agent 将在下次心跳后生效"); qc.invalidateQueries({ queryKey: ["nodes"] }); qc.invalidateQueries({ queryKey: ["servers"] }); onClose(); },
-    onError: (e) => toast.fromError(e),
-  });
-  const list = protocols.filter((p) => !(server.core_mode === "lean" && ["snell","mieru"].includes(p)));
-  const tls = ["anytls", "hysteria2", "tuic", "trojan"].includes(f.protocol);
+// What this machine carried for each user in the last 30 days, by inbound.
+function ServerProxyUsage({ nodes }: { nodes: Node[] }) {
+  const inbounds = nodes.filter((n) => !n.attach_node_id && !n.share_id);
+  const members = nodes.filter((n) => n.attach_node_id && !n.revoked);
+  const byUser = new Map<string, { name: string; id: number; total: number; lines: number }>();
+  for (const m of members) {
+    const key = String(m.share_id);
+    const row = byUser.get(key) ?? { name: m.share_name ?? "—", id: m.share_id ?? 0, total: 0, lines: 0 };
+    row.total += m.traffic?.total ?? 0;
+    row.lines += 1;
+    byUser.set(key, row);
+  }
+  const users = [...byUser.values()].sort((a, b) => b.total - a.total);
   return (
-    <Dialog open={open} onClose={onClose} title={`在 ${server.name} 上部署节点`} description="凭据自动生成；Reality 无需证书，Hy2/TUIC/AnyTLS/Trojan 按服务器证书模式处理。" footer={<><Button variant="outline" onClick={onClose}>取消</Button><Button onClick={() => m.mutate()} loading={m.isPending}>部署</Button></>}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="协议">
-          <Select value={f.protocol} onChange={(e) => set("protocol", e.target.value)}>
-            {list.map((p) => <option key={p} value={p}>{PROTOCOL_LABELS[p] ?? p}</option>)}
-          </Select>
-        </Field>
-        <Field label="名称" hint="留空自动生成"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder={defaultNodeName(server, f.protocol)} /></Field>
-        <Field label="端口" hint="留空随机 20000-50000"><Input type="number" value={f.port} onChange={(e) => set("port", e.target.value)} /></Field>
-        {f.protocol === "vless" && <Field label="Reality 伪装域名" hint="默认 www.sony.com"><Input value={f.sni} onChange={(e) => set("sni", e.target.value)} placeholder="www.sony.com" /></Field>}
-        {tls && (
-          <>
-            <Field label="TLS 域名" hint="留空用服务器公网地址"><Input value={f.domain} onChange={(e) => set("domain", e.target.value)} /></Field>
-            <Field label="证书模式" hint="留空继承服务器">
-              <Select value={f.cert_mode} onChange={(e) => set("cert_mode", e.target.value)}>
-                <option value="">继承（{server.cert_mode}）</option>
-                <option value="self_signed">自签名</option>
-                <option value="acme">ACME</option>
-                <option value="external">外部证书</option>
-              </Select>
-            </Field>
-          </>
-        )}
-        {tls && (f.cert_mode || server.cert_mode) === "external" && <Field label="外部证书 ID" hint="填写此 VPS 本机安全策略中已登记的证书名称"><Input value={f.cert_id} onChange={(e) => set("cert_id", e.target.value)} maxLength={64} /></Field>}
-        {f.protocol === "hysteria2" && <div className="sm:col-span-2"><Switch checked={f.obfs} onChange={(v) => set("obfs", v)} label="启用 Salamander 混淆（对抗 QUIC 封锁）" /></div>}
-        {f.protocol === "wireguard" && <p className="text-sm text-muted-foreground">每个节点使用独立端口和单用户密钥，可在节点详情导出标准 WireGuard 配置。用户态接入不创建宿主机 VPN 或子网路由。</p>}
-        {f.protocol === "mieru" && <Field label="mieru 传输" hint="独立 mita 实例，支持 mihomo。"><Select value={f.mieru_transport} onChange={e=>set("mieru_transport",e.target.value)}><option>TCP</option><option>UDP</option></Select></Field>}
-        {f.protocol === "snell" && (
-          <Field label="Snell 版本">
-            <Select value={String(f.snell_version)} onChange={(e) => set("snell_version", Number(e.target.value))}>
-              <option value="4">v4（兼容最广）</option>
-              <option value="5">v5（Surge 5.x+）</option>
-            </Select>
-          </Field>
-        )}
-      </div>
-      <p className="mt-4 text-xs text-muted-foreground">提示：TCP+QUIC 双入口更稳——同一台机器同时部署 VLESS Reality 与 Hysteria2，客户端用 <Code>url-test</Code> 组自动切换。</p>
-    </Dialog>
+    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader><CardTitle>入站</CardTitle></CardHeader>
+        <CardContent>
+          {!inbounds.length ? <p className="text-sm text-muted-foreground">这台机器只做监控，没有入站。要让它代理流量，到<Link to="/nodes" className="text-primary hover:underline">「节点」</Link>里新建入站。</p> : (
+            <Table>
+              <thead><tr className="border-b"><Th>名称</Th><Th>端口</Th><Th>伪装域名</Th><Th>凭据</Th><Th className="text-right">近 30 天</Th></tr></thead>
+              <tbody>
+                {inbounds.map((n) => (
+                  <Tr key={n.id}>
+                    <Td className="font-medium">{n.name}{!n.enabled && <Badge variant="secondary" className="ml-2">已停用</Badge>}</Td>
+                    <Td className="tabular-nums">{n.listen_port}</Td>
+                    <Td className="text-muted-foreground">{String((n.params as { servername?: string })?.servername ?? "—")}</Td>
+                    <Td className="tabular-nums">{members.filter((m) => m.attach_node_id === n.id).length}</Td>
+                    <Td className="text-right tabular-nums">{n.traffic?.has_data ? fmtBytes(n.traffic.total) : "—"}</Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>各用户在这台机器上的用量（近 30 天）</CardTitle></CardHeader>
+        <CardContent>
+          {!users.length ? <p className="text-sm text-muted-foreground">还没有用户用到这台机器</p> : (
+            <Table>
+              <thead><tr className="border-b"><Th>用户</Th><Th>线路数</Th><Th className="text-right">用量</Th></tr></thead>
+              <tbody>
+                {users.map((u) => (
+                  <Tr key={u.id}>
+                    <Td className="font-medium"><Link to={`/users/${u.id}`} className="hover:underline">{u.name}</Link></Td>
+                    <Td className="tabular-nums">{u.lines}</Td>
+                    <Td className="text-right tabular-nums">{u.total > 0 ? fmtBytes(u.total) : "—"}</Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -23,7 +23,7 @@ func (p *previewMaintenance) Call(_ context.Context, method, path string, in, ou
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if path == "/latest" {
-		*(out.(*maintenance.Release)) = maintenance.Release{Version: "v0.2.0", URL: "https://github.com/YongshengWin/VpsCT/releases"}
+		*(out.(*maintenance.Release)) = maintenance.Release{Version: "v0.2.0", URL: "https://github.com/yanglingjieee/VpsCT/releases"}
 		return nil
 	}
 	if method == "GET" {

@@ -66,10 +66,8 @@ function GeneralTab() {
       <Card className="p-4 sm:p-5">
         <div className="grid gap-4">
           <Field label="站点名称"><Input value={s.value("site.name")} onChange={(e) => s.set("site.name", e.target.value)} /></Field>
-          <Field label="站点外部地址" hint="订阅链接前缀；留空按请求 Host 推断（经 Cloudflare/反代时请填写）"><Input value={s.value("site.url")} onChange={(e) => s.set("site.url", e.target.value)} placeholder="https://panel.example.com" /></Field>
-          <Switch checked={s.value("subscription.short_links") === "1"} onChange={(v) => s.set("subscription.short_links", v ? "1" : "0")} label="新订阅默认同时生成 /r 别名（256 位）" />
-          <Switch checked={s.value("subscription.userinfo_default") === "1"} onChange={(v) => s.set("subscription.userinfo_default", v ? "1" : "0")} label="新订阅默认输出 Subscription-Userinfo 头" />
-          <Field label="服务器流量用到多少开始提醒" hint="只看「服务器」的本期入站+出站汇总 ÷ 月配额。到了这个比例：总览出现一条黄条；配了 Telegram 也会推一次。还不停节点。分享不看这个数，用尽才提醒。">
+          <Field label="站点外部地址" hint="用户专属链接的前缀；经 Cloudflare 或反向代理时请填写"><Input value={s.value("site.url")} onChange={(e) => s.set("site.url", e.target.value)} placeholder="https://panel.example.com" /></Field>
+          <Field label="服务器流量用到多少开始提醒" hint="只看「服务器」的本期入站+出站汇总 ÷ 月配额。到了这个比例：总览出现一条黄条；配了 Telegram 也会推一次。还不停节点。用户的限额不看这个数，用尽才提醒。">
             <Select value={s.value("quota.alert_percent") || "80"} onChange={(e) => s.set("quota.alert_percent", e.target.value)}>
               {(["70", "80", "90", "95"] as const).map((n) => <option key={n} value={n}>用到 {n}% 就提醒</option>)}
               {s.value("quota.alert_percent") && !["70", "80", "90", "95"].includes(s.value("quota.alert_percent")) && (
@@ -108,7 +106,7 @@ function NotifyTab() {
   if (s.q.isLoading) return <Spinner />;
   return (
     <Card className="max-w-2xl p-4 sm:p-5">
-      <p className="mb-3 text-sm leading-6 text-muted-foreground">会推：agent 离线/恢复、配置下发失败、服务器流量到 {s.value("quota.alert_percent") || "80"}%、服务器配额用尽、分享用尽、证书快到期、订阅同步失败。</p>
+      <p className="mb-3 text-sm leading-6 text-muted-foreground">会推：agent 离线/恢复、配置下发失败、服务器流量到 {s.value("quota.alert_percent") || "80"}%、服务器配额用尽、用户流量用尽、证书快到期、订阅同步失败。</p>
       <div className="grid gap-4">
         <Field label="Bot Token" hint="从 @BotFather 获取；保存后掩码显示"><Input className="mono" value={s.value("telegram.bot_token")} onChange={(e) => s.set("telegram.bot_token", e.target.value)} placeholder="123456:ABC-DEF..." /></Field>
         <Field label="Chat ID" hint="个人或群组 ID；可用 @userinfobot 查询"><Input className="mono" value={s.value("telegram.chat_id")} onChange={(e) => s.set("telegram.chat_id", e.target.value)} /></Field>

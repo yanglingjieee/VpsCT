@@ -4,8 +4,6 @@ import {
   LayoutDashboard,
   Server,
   Network,
-  Rss,
-  Link2,
   Users2,
   FileCode2,
   ScrollText,
@@ -16,7 +14,6 @@ import {
   Menu,
   X,
   UserCog,
-  Share2,
   ChevronDown,
 } from "lucide-react";
 import { cn, displayName } from "@/lib/utils";
@@ -36,18 +33,15 @@ interface Item {
 // avatar menu to keep the bar as light as the reference design.
 const items: Item[] = [
   { to: "/", label: "总览", icon: LayoutDashboard },
-  { to: "/servers", label: "服务器", icon: Server, admin: true },
-  { to: "/nodes", label: "节点", icon: Network, admin: true },
-  { to: "/externals", label: "订阅导入", icon: Rss, admin: true },
-  { to: "/subscriptions", label: "订阅链接", icon: Link2 },
-  { to: "/shares", label: "分享", icon: Share2 },
-  { to: "/templates", label: "模板", icon: FileCode2, admin: true },
-  { to: "/connlog", label: "连接日志", icon: ScrollText, admin: true },
+  { to: "/servers", label: "服务器", icon: Server },
+  { to: "/nodes", label: "节点", icon: Network },
+  { to: "/users", label: "用户", icon: Users2 },
+  { to: "/rules", label: "规则", icon: FileCode2 },
+  { to: "/connlog", label: "连接日志", icon: ScrollText },
 ];
 const accountItems: Item[] = [
   { to: "/account", label: "账户设置", icon: UserCog },
-  { to: "/users", label: "用户", icon: Users2, admin: true },
-  { to: "/settings", label: "设置", icon: Settings, admin: true },
+  { to: "/settings", label: "面板设置", icon: Settings },
 ];
 
 function Brand({ name }: { name: string }) {
@@ -87,7 +81,7 @@ export function Layout() {
   const visible = items.filter((i) => !i.admin || isAdmin);
   const account = accountItems.filter((i) => !i.admin || isAdmin);
   const mobileItems = visible.slice(0, 4);
-  const siteName = meta?.site_name ?? "VpsCT";
+  const siteName = meta?.site_name ?? "土豆饼的家";
 
   const drawerNav = (
     <nav className="flex flex-1 flex-col gap-0.5 px-3">

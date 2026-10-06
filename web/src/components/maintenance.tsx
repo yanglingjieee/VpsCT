@@ -171,7 +171,7 @@ export function MaintenancePanel({ server, open = false, onOpen, onClose, onBusy
           <p className="mt-2">确认范围后去掉 --dry-run，按终端提示确认。--purge 会清空 Agent 配置和数据；要保留数据请去掉该参数。同机控制端不受影响。</p>
           <p className="mt-2">旧版没有该文件时，从官方发行附件下载，再预览：</p>
           <Pre>{`vpsct_uninstaller="$(mktemp)" &&
-curl -fLsS --proto '=https' --proto-redir '=https' --max-time 120 https://github.com/YongshengWin/VpsCT/releases/latest/download/uninstall.sh -o "$vpsct_uninstaller" &&
+curl -fLsS --proto '=https' --proto-redir '=https' --max-time 120 https://github.com/yanglingjieee/VpsCT/releases/latest/download/uninstall.sh -o "$vpsct_uninstaller" &&
 sudo bash "$vpsct_uninstaller" --agent --purge --dry-run`}</Pre>
           <p className="mt-2">预览无误后，在同一终端执行：</p>
           <Pre>{'sudo bash "$vpsct_uninstaller" --agent --purge'}</Pre>

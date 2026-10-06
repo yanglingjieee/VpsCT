@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ctlvps-agent installer. Usage:
-#   curl -fsSL https://github.com/YongshengWin/VpsCT/releases/latest/download/install-agent.sh | sudo bash -s -- --server https://panel.example.com --token <enroll-token>
+#   curl -fsSL https://github.com/yanglingjieee/VpsCT/releases/latest/download/install-agent.sh | sudo bash -s -- --server https://panel.example.com --token <enroll-token>
 set -euo pipefail
 
 SERVER=""
@@ -60,12 +60,12 @@ esac
 # enrollment/configuration only; it cannot choose executable bytes or checksums.
 RELEASE_VERSION='__VERSION__'
 if [[ "$RELEASE_VERSION" == '__VERSION__' ]]; then
-  RELEASE_VERSION=$(curl -fLsS --proto '=https' --proto-redir '=https' --max-time 60 https://api.github.com/repos/YongshengWin/VpsCT/releases/latest | sed -n 's/.*"tag_name": *"\([^" ]*\)".*/\1/p')
+  RELEASE_VERSION=$(curl -fLsS --proto '=https' --proto-redir '=https' --max-time 60 https://api.github.com/repos/yanglingjieee/VpsCT/releases/latest | sed -n 's/.*"tag_name": *"\([^" ]*\)".*/\1/p')
 fi
 [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]] || { echo 'invalid release version' >&2; exit 1; }
 WORK=$(mktemp -d)
 trap 'rm -rf -- "$WORK"' EXIT
-RELEASE_BASE="https://github.com/YongshengWin/VpsCT/releases/download/$RELEASE_VERSION"
+RELEASE_BASE="https://github.com/yanglingjieee/VpsCT/releases/download/$RELEASE_VERSION"
 download_agent() {
   local asset="ctlvps-agent-linux-$ARCH" helper="ctlvps-verify-linux-$ARCH" expected helper_stage
   TMP="$WORK/$asset"

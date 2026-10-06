@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Download, Filter, Globe, MonitorSmartphone, Search, Trash2, UserRound, Waypoints, X } from "lucide-react";
 import { del, get, put } from "@/lib/api";
-import type { ConnClientHit, ConnEvent, Node, Server, Share, Subscription } from "@/lib/types";
+import type { ConnClientHit, ConnEvent, Line, Node, Server, Share } from "@/lib/types";
 import { cn, fmtBytes, fmtDate } from "@/lib/utils";
 import { Button, Card, Confirm, Empty, Input, PageHeader, Select, Spinner, Switch } from "@/components/ui";
 import { DateTimeInput } from "@/components/datetime-picker";
@@ -103,9 +103,9 @@ export function ConnlogPage() {
   };
 
   const shares = useQuery({ queryKey: ["shares"], queryFn: () => get<Share[]>("/api/v1/shares") });
-  const subscriptions = useQuery({ queryKey: ["subscriptions"], queryFn: () => get<Subscription[]>("/api/v1/subscriptions") });
+  const lines = useQuery({ queryKey: ["lines"], queryFn: () => get<Line[]>("/api/v1/lines") });
   const servers = useQuery({ queryKey: ["servers"], queryFn: () => get<Server[]>("/api/v1/servers") });
-  const nodes = useQuery({ queryKey: ["nodes", { source: "deployed" }], queryFn: () => get<Node[]>("/api/v1/nodes?source=deployed&include_revoked=1") });
+  const nodes = useQuery({ queryKey: ["nodes", { source: "deployed" }], queryFn: () => get<Node[]>("/api/v1/nodes?source=deployed&include_revoked=1&members=1") });
   const qs = new URLSearchParams();
   if (shareID) qs.set("share_id", shareID);
   if (serverID) qs.set("server_id", serverID);
@@ -129,18 +129,9 @@ export function ConnlogPage() {
   const purge = useMutation({
     mutationFn: () => del(`/api/v1/connlog/shares/${shareID}`),
     onSuccess: () => {
-      toast.success("已清除该分享的连接日志");
+      toast.success("已清除该用户的连接日志");
       setConfirmPurge(false);
       qc.invalidateQueries({ queryKey: ["connlog"] });
-    },
-    onError: (e) => toast.fromError(e),
-  });
-  const toggleSelf = useMutation({
-    mutationFn: (enabled: boolean) => put("/api/v1/settings", { "connlog.self_enabled": enabled ? "1" : "0" }),
-    onSuccess: (_, enabled) => {
-      toast.success(enabled ? "已开始记录自用" : "已停止记录自用");
-      qc.invalidateQueries({ queryKey: ["connlog"] });
-      qc.invalidateQueries({ queryKey: ["settings"] });
     },
     onError: (e) => toast.fromError(e),
   });
@@ -154,12 +145,13 @@ export function ConnlogPage() {
     onError: (e) => toast.fromError(e),
   });
 
-  const nodeName = (id: number) => nodes.data?.find((n) => n.id === id)?.name ?? `#${id}`;
+  // A user's credential belongs to a line; show that instead of the credential.
+  const nodeName = (id: number) => {
+    const n = nodes.data?.find((x) => x.id === id);
+    return (n?.line_id ? lines.data?.find((l) => l.id === n.line_id)?.name : undefined) ?? n?.name ?? `#${id}`;
+  };
   const serverName = (id: number) => servers.data?.find((s) => s.id === id)?.name ?? `#${id}`;
   const shareName = (id?: number | null) => (id ? shares.data?.find((s) => s.id === id)?.name ?? `#${id}` : "—");
-  const selfSubNames = (subscriptions.data ?? []).filter((s) => s.kind !== "share" && s.enabled).map((s) => s.name);
-  const shareSubName = (id: number) => subscriptions.data?.find((s) => s.share_id === id)?.name;
-  const selfOn = stats.data?.self_enabled !== false;
   const total = events.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE));
   const hasFilter = !!(shareID || serverID || nodeID || host || src || from || to);
@@ -168,7 +160,7 @@ export function ConnlogPage() {
     return (
       <div>
         <PageHeader title="连接日志" />
-        <Empty title="连接日志已在服务端禁用" description="ctlvpsd 以 --disable-connlog（或 CTLVPS_DISABLE_CONNLOG=1）启动。去掉该参数重启后即可记录自用与分享连接。" />
+        <Empty title="连接日志已在服务端禁用" description="ctlvpsd 以 --disable-connlog（或 CTLVPS_DISABLE_CONNLOG=1）启动。去掉该参数重启后即可按用户记录连接。" />
       </div>
     );
   }
@@ -177,7 +169,7 @@ export function ConnlogPage() {
     <div>
       <PageHeader
         title="连接日志"
-        description="芯片点名字筛选来源，小开关控制是否记录。客户端 IP 由 agent 合成 sing-box 的 from/to；旧 agent 只有目标。"
+        description="按用户记录：谁、从哪个 IP、经哪条线路、访问了什么。点名字筛选，小开关控制是否记录这个用户。"
         actions={
           <>
             <a href={`/api/v1/connlog/export?${qs}`} download>
@@ -187,7 +179,7 @@ export function ConnlogPage() {
             </a>
             {shareID && (
               <Button variant="ghost" className="text-rose-600" onClick={() => setConfirmPurge(true)}>
-                <Trash2 className="h-4 w-4" /> 清除该分享日志
+                <Trash2 className="h-4 w-4" /> 清除该用户的日志
               </Button>
             )}
           </>
@@ -197,20 +189,11 @@ export function ConnlogPage() {
       <Card className="mb-4 overflow-hidden p-3">
         <div className="mb-2 flex flex-wrap items-center gap-1.5 border-b border-border/60 pb-2">
           <span className="mr-0.5 text-xs text-muted-foreground">记录</span>
-          <SourceChip
-            label="自用"
-            title={selfSubNames.length ? selfSubNames.join(" · ") : "自用节点"}
-            enabled={selfOn}
-            active={shareID === "self"}
-            pending={toggleSelf.isPending}
-            onToggle={(v) => toggleSelf.mutate(v)}
-            onFilter={() => setParam("share_id", shareID === "self" ? "" : "self")}
-          />
           {(shares.data ?? []).map((s) => (
             <SourceChip
               key={s.id}
-              label={shareSubName(s.id) || s.name}
-              title={shareSubName(s.id) && shareSubName(s.id) !== s.name ? s.name : "分享订阅"}
+              label={s.name}
+              title={s.connlog_enabled ? "正在记录" : "未记录"}
               enabled={s.connlog_enabled}
               active={shareID === String(s.id)}
               pending={toggleShare.isPending && toggleShare.variables?.id === s.id}
@@ -220,9 +203,8 @@ export function ConnlogPage() {
           ))}
         </div>
         <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
-          <Select className={cn("w-full sm:w-40", shareID && "ring-2 ring-primary/40")} value={shareID} onChange={(e) => setParam("share_id", e.target.value)} aria-label="分享">
-            <option value="">全部来源</option>
-            <option value="self">自用</option>
+          <Select className={cn("w-full sm:w-40", shareID && "ring-2 ring-primary/40")} value={shareID} onChange={(e) => setParam("share_id", e.target.value)} aria-label="用户">
+            <option value="">全部用户</option>
             {(shares.data ?? []).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -237,16 +219,6 @@ export function ConnlogPage() {
                 {s.name}
               </option>
             ))}
-          </Select>
-          <Select className={cn("col-span-2 w-full sm:col-span-1 sm:w-40", nodeID && "ring-2 ring-primary/40")} value={nodeID} onChange={(e) => setParam("node_id", e.target.value)} aria-label="节点">
-            <option value="">全部节点</option>
-            {(nodes.data ?? [])
-              .filter((n) => !serverID || String(n.server_id) === serverID)
-              .map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.name}
-                </option>
-              ))}
           </Select>
           <form
             className="relative col-span-2 min-w-[11rem] sm:flex-1"
@@ -271,9 +243,9 @@ export function ConnlogPage() {
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
               <Filter className="h-3.5 w-3.5" /> 正在筛选
             </span>
-            {shareID ? <FilterChip label={shareID === "self" ? "来源 · 自用" : `来源 · ${shareName(Number(shareID))}`} onClear={() => setParam("share_id", "")} /> : null}
+            {shareID ? <FilterChip label={`用户 · ${shareName(Number(shareID))}`} onClear={() => setParam("share_id", "")} /> : null}
             {serverID ? <FilterChip label={`服务器 · ${serverName(Number(serverID))}`} onClear={() => setParam("server_id", "")} /> : null}
-            {nodeID ? <FilterChip label={`节点 · ${nodeName(Number(nodeID))}`} onClear={() => setParam("node_id", "")} /> : null}
+            {nodeID ? <FilterChip label={`线路 · ${nodeName(Number(nodeID))}`} onClear={() => setParam("node_id", "")} /> : null}
             {host ? <FilterChip label={`目标 · ${host}`} onClear={() => filterHost("")} /> : null}
             {src ? <FilterChip label={`客户端 · ${src}`} onClear={() => setParam("src", "")} /> : null}
             {from || to ? <FilterChip label={`时间 · ${from || "…"} ~ ${to || "…"}`} onClear={() => clearParams("from", "to")} /> : null}
@@ -348,7 +320,7 @@ export function ConnlogPage() {
             <Spinner />
           ) : !events.data?.events.length ? (
             <div className="px-6 py-14 text-center text-sm text-muted-foreground">
-              {hasFilter ? "没有匹配的记录" : "还没有记录。用上方芯片开关按订阅开启；agent 需在线并已应用新配置。"}
+              {hasFilter ? "没有匹配的记录" : "还没有记录。用上方的小开关给要记录的用户打开；打开后的新连接才会记录。"}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -360,7 +332,7 @@ export function ConnlogPage() {
                     <th className="px-2 py-2">时间</th>
                     <th className="px-2 py-2">来源</th>
                     <th className="px-2 py-2">客户端</th>
-                    <th className="px-2 py-2">节点</th>
+                    <th className="px-2 py-2">线路</th>
                     <th className="px-2 py-2">协议</th>
                     <th className="px-2 py-2 pr-4">请求地址</th>
                   </tr>
@@ -384,7 +356,7 @@ export function ConnlogPage() {
                               {shareName(e.share_id)}
                             </span>
                           ) : (
-                            <span className="text-muted-foreground">自用</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </td>
                         <td className="whitespace-nowrap px-2 py-1.5">
@@ -424,7 +396,7 @@ export function ConnlogPage() {
           )}
       </Card>
 
-      <Confirm open={confirmPurge} onClose={() => setConfirmPurge(false)} onConfirm={() => purge.mutate()} loading={purge.isPending} destructive title="清除该分享的全部连接日志？" description="全部事件都会删除，不可恢复。" />
+      <Confirm open={confirmPurge} onClose={() => setConfirmPurge(false)} onConfirm={() => purge.mutate()} loading={purge.isPending} destructive title="清除这个用户的全部连接日志？" description="全部事件都会删除，不可恢复。" />
     </div>
   );
 }

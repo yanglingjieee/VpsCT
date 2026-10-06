@@ -10,12 +10,10 @@ import { LoginPage } from "@/pages/login";
 import { DashboardPage } from "@/pages/dashboard";
 import { ServersPage, ServerDetailPage } from "@/pages/servers";
 import { NodesPage } from "@/pages/nodes";
-import { ExternalsPage } from "@/pages/externals";
-import { SubscriptionsPage, SubscriptionEditorPage } from "@/pages/subscriptions";
-import { SharesPage, ShareDetailPage } from "@/pages/shares";
-import { TemplatesPage } from "@/pages/templates";
+import { UsersPage, UserDetailPage } from "@/pages/users";
+import { RulesPage } from "@/pages/rules";
 import { ConnlogPage } from "@/pages/connlog";
-import { UsersPage } from "@/pages/users";
+import { PersonalPageView } from "@/pages/public";
 import { SettingsPage } from "@/pages/settings";
 import { AccountPage } from "@/pages/account";
 
@@ -111,7 +109,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 
+// A user's own link (/s/<token>, /r/<code>) opened in a browser. It needs no
+// session and must not touch the panel's login state.
+const personalPage = /^\/(s|r)\/[^/]+\/?$/.test(window.location.pathname);
+
 export default function App() {
+  if (personalPage) return <PersonalPageView />;
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
@@ -123,20 +126,15 @@ export default function App() {
               <Route path="/login" element={<LoginRoute />} />
               <Route element={<RequireAuth><Layout /></RequireAuth>}>
                 <Route index element={<DashboardPage />} />
-                <Route path="servers" element={<RequireAuth admin><ServersPage /></RequireAuth>} />
-                <Route path="servers/:id" element={<RequireAuth admin><ServerDetailPage /></RequireAuth>} />
-                <Route path="nodes" element={<RequireAuth admin><NodesPage /></RequireAuth>} />
-                <Route path="externals" element={<RequireAuth admin><ExternalsPage /></RequireAuth>} />
-                <Route path="subscriptions" element={<SubscriptionsPage />} />
-                <Route path="subscriptions/new" element={<RequireAuth admin><SubscriptionEditorPage /></RequireAuth>} />
-                <Route path="subscriptions/:id/edit" element={<RequireAuth admin><SubscriptionEditorPage /></RequireAuth>} />
-                <Route path="shares" element={<SharesPage />} />
-                <Route path="shares/:id" element={<ShareDetailPage />} />
-                <Route path="templates" element={<RequireAuth admin><TemplatesPage /></RequireAuth>} />
-                <Route path="connlog" element={<RequireAuth admin><ConnlogPage /></RequireAuth>} />
+                <Route path="servers" element={<ServersPage />} />
+                <Route path="servers/:id" element={<ServerDetailPage />} />
+                <Route path="nodes" element={<NodesPage />} />
+                <Route path="users" element={<UsersPage />} />
+                <Route path="users/:id" element={<UserDetailPage />} />
+                <Route path="rules" element={<RulesPage />} />
+                <Route path="connlog" element={<ConnlogPage />} />
                 <Route path="account" element={<AccountPage />} />
-                <Route path="users" element={<RequireAuth admin><UsersPage /></RequireAuth>} />
-                <Route path="settings" element={<RequireAuth admin><SettingsPage /></RequireAuth>} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>

@@ -45,7 +45,13 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) error {
 				}
 			}
 			if ag.ApplyError != "" {
-				alerts = append(alerts, map[string]any{"level": "error", "kind": "apply_failed", "server_id": ag.ServerID, "message": "配置下发失败: " + ag.ApplyError})
+				name := ""
+				for _, s := range servers {
+					if s.ID == ag.ServerID {
+						name = s.Name + " "
+					}
+				}
+				alerts = append(alerts, map[string]any{"level": "error", "kind": "apply_failed", "server_id": ag.ServerID, "message": name + "配置下发失败: " + ag.ApplyError})
 			}
 		}
 		for _, s := range servers {
@@ -64,7 +70,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) error {
 			if sh.Status == domain.ShareActive {
 				activeShares++
 			} else if sh.Status == domain.ShareExhausted {
-				alerts = append(alerts, map[string]any{"level": "info", "kind": "share_exhausted", "share_id": sh.ID, "message": fmt.Sprintf("分享 %s 流量已用尽", sh.Name)})
+				alerts = append(alerts, map[string]any{"level": "info", "kind": "share_exhausted", "share_id": sh.ID, "message": fmt.Sprintf("用户 %s 本期流量已用完", sh.Name)})
 			}
 		}
 		for _, e := range exts {
@@ -81,10 +87,16 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) error {
 				todayUp, todayDown = p.Up, p.Down
 			}
 		}
+		lines, _ := a.Store.ListLines(ctx)
 		out["counts"] = map[string]any{
 			"servers": len(servers), "servers_online": online, "nodes": len(nodes), "shares": len(shares), "shares_active": activeShares,
-			"subscriptions": len(subs), "externals": len(exts),
+			"subscriptions": len(subs), "externals": len(exts), "lines": len(lines),
 		}
+		people := make([]ShareView, 0, len(shares))
+		for _, sh := range shares {
+			people = append(people, a.shareView(r, sh, false))
+		}
+		out["users"] = people
 		out["traffic"] = map[string]any{
 			"servers_30d": serverSeries, "externals_30d": extSeries,
 			"today_up": todayUp, "today_down": todayDown,

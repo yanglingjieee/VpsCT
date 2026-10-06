@@ -579,5 +579,5 @@ func officialAgentCommand(server, token string, update bool) string {
 	} else {
 		args += " --token " + quote(token)
 	}
-	return `( vpsct_installer=$(mktemp) || exit; trap 'rm -f -- "$vpsct_installer"' EXIT; curl -fLsS --proto '=https' --proto-redir '=https' --max-time 120 https://github.com/YongshengWin/VpsCT/releases/latest/download/install-agent.sh -o "$vpsct_installer" && sudo bash "$vpsct_installer"` + args + ` )`
+	return `( vpsct_installer=$(mktemp) || exit; trap 'rm -f -- "$vpsct_installer"' EXIT; curl -fLsS --proto '=https' --proto-redir '=https' --max-time 120 https://github.com/yanglingjieee/VpsCT/releases/latest/download/install-agent.sh -o "$vpsct_installer" && sudo bash "$vpsct_installer"` + args + ` )`
 }

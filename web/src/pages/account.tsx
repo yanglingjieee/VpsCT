@@ -6,7 +6,7 @@ import type { User } from "@/lib/types";
 import { cn, displayName, fmtDate } from "@/lib/utils";
 import { Badge, Button, Card, Dialog, Field, Input, PageHeader, Spinner } from "@/components/ui";
 import { AVATAR_PRESETS, Avatar, PresetAvatar, fileToAvatarDataURL } from "@/components/avatar";
-import { QR } from "@/pages/nodes";
+import { QR } from "@/components/qr";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 

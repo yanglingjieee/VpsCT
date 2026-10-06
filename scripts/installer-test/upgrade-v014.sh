@@ -7,7 +7,7 @@ cd /src
 arch=$(uname -m); [[ "$arch" != aarch64 ]] || arch=arm64
 python3 scripts/security-fixture.py init
 python3 scripts/security-fixture.py sign controller v0.1.4 "/old-assets/ctlvps-v0.1.4-linux-$arch.tar.gz"
-bash install.sh --repo YongshengWin/VpsCT --version v0.1.4 --assets-dir /old-assets --site-url https://panel.example.test --no-proxy >/tmp/install-old.log 2>&1
+bash install.sh --repo yanglingjieee/VpsCT --version v0.1.4 --assets-dir /old-assets --site-url https://panel.example.test --no-proxy >/tmp/install-old.log 2>&1
 python3 - <<'PY'
 import json,pathlib,urllib.request,sqlite3
 p=pathlib.Path('/opt/ctlvps/data')
@@ -19,7 +19,7 @@ pathlib.Path('/tmp/account-before.json').write_text(json.dumps(c.execute('select
 print('PASS genuine v0.1.4 package initialized at schema 11')
 PY
 python3 scripts/security-fixture.py sign controller v0.1.5 "/assets/ctlvps-v0.1.5-linux-$arch.tar.gz"
-bash install.sh --repo YongshengWin/VpsCT --version v0.1.5 --assets-dir /assets --update --auto-rollback >/tmp/upgrade-new.log 2>&1
+bash install.sh --repo yanglingjieee/VpsCT --version v0.1.5 --assets-dir /assets --update --auto-rollback >/tmp/upgrade-new.log 2>&1
 python3 - <<'PY'
 import json,pathlib,sqlite3,urllib.request
 p=pathlib.Path('/opt/ctlvps/data');c=sqlite3.connect(p/'ctlvps.db')

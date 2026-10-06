@@ -182,6 +182,8 @@ export interface Server {
   quota_billing: string;
   core_mode: "stable" | "lean";
   ipv4_only: boolean;
+  prefer_ipv6: boolean;
+  ingress_ack: boolean;
   cert_mode: string;
   enabled: boolean;
   created_at: string;
@@ -209,6 +211,9 @@ export interface Node {
   server_id?: number | null;
   external_sub_id?: number | null;
   share_id?: number | null;
+  attach_node_id?: number | null;
+  line_id?: number | null;
+  landing?: boolean;
   listen_port: number;
   core: string;
   enabled: boolean;
@@ -365,6 +370,102 @@ export interface Share {
   subscription?: Subscription;
   nodes?: Node[];
   user_name?: string;
+  line_mode: "" | "all" | "selected";
+  line_ids: number[];
+  delivery: "profile" | "nodes";
+  ruleset_id?: number | null;
+  link?: string;
+  ruleset_name: string;
+  line_count: number;
+  lines?: LineUsage[];
+  formats?: string[];
+  node_links?: PersonNode[];
+}
+
+/** One line a user is offered: a listener, optionally relayed to a landing. */
+export interface Line {
+  id: number;
+  name: string;
+  entry_node_id: number;
+  landing_node_id?: number | null;
+  sort_order: number;
+  enabled: boolean;
+  entry_name: string;
+  entry_server: string;
+  landing_name?: string;
+  landing_server?: string;
+  problem?: string;
+  users: number;
+}
+
+export interface LineCandidate {
+  id: number;
+  name: string;
+  server_id: number;
+  server_name: string;
+  listen_port: number;
+  sni: string;
+}
+
+export interface LineUsage {
+  line_id: number;
+  name: string;
+  entry_server: string;
+  landing_server?: string;
+  entry_up: number;
+  entry_down: number;
+  landing_up: number;
+  landing_down: number;
+  total: number;
+  ready: boolean;
+}
+
+export interface PersonNode {
+  name: string;
+  uri: string;
+}
+
+export type RuleKind = "mihomo" | "shadowrocket" | "surge" | "singbox";
+
+export interface Ruleset {
+  id: number;
+  name: string;
+  description: string;
+  mihomo: string;
+  shadowrocket: string;
+  surge: string;
+  singbox: string;
+  sort_order: number;
+  formats: RuleKind[];
+  users: number;
+  default: boolean;
+  updated_at: string;
+}
+
+export interface RulesetList {
+  list: Ruleset[];
+  none_users: number;
+  default_id: number;
+  none: Record<RuleKind, string>;
+}
+
+/** What a user sees when opening their own link in a browser. */
+export interface PersonalPage {
+  site_name: string;
+  name: string;
+  status: ShareStatus;
+  delivery: "profile" | "nodes";
+  upload: number;
+  download: number;
+  used: number;
+  quota: number;
+  next_reset?: string;
+  expires_at?: string;
+  lines: { name: string; total: number; ready: boolean }[];
+  formats: RuleKind[];
+  rules: string;
+  nodes?: PersonNode[];
+  url: string;
 }
 
 export interface TrafficPoint {
