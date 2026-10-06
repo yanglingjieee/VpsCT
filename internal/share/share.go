@@ -139,6 +139,10 @@ func (m *Manager) Update(ctx context.Context, sh *domain.Share) error {
 // target and revokes nodes whose target was removed, then republishes the
 // affected servers.
 func (m *Manager) EnsureNodes(ctx context.Context, sh *domain.Share) error {
+	affected := map[int64]bool{}
+	if err := m.ensureMembers(ctx, sh, affected); err != nil {
+		return err
+	}
 	existing, err := m.Store.ListNodes(ctx, store.NodeFilter{ShareID: &sh.ID, IncludeRevoked: true})
 	if err != nil {
 		return err
@@ -149,12 +153,11 @@ func (m *Manager) EnsureNodes(ctx context.Context, sh *domain.Share) error {
 	}
 	have := map[key]domain.Node{}
 	for _, n := range existing {
-		if n.ServerID != nil {
+		if n.ServerID != nil && n.AttachNodeID == nil {
 			have[key{*n.ServerID, n.Protocol}] = n
 		}
 	}
 	want := map[key]bool{}
-	affected := map[int64]bool{}
 	for _, t := range sh.Targets {
 		server, err := m.Store.GetServer(ctx, t.ServerID)
 		if err != nil {
@@ -418,6 +421,21 @@ func (m *Manager) Reissue(ctx context.Context, id int64) (string, error) {
 	}
 	for _, n := range nodes {
 		if n.ServerID == nil {
+			continue
+		}
+		if n.AttachNodeID != nil {
+			// Only the member's own secret rotates; EnsureNodes below decides
+			// whether its line still exists.
+			parent, err := m.Store.GetNode(ctx, *n.AttachNodeID)
+			if err != nil {
+				continue
+			}
+			if err := provision.SyncMember(&n, parent, true); err != nil {
+				return "", err
+			}
+			if err := m.Store.UpdateNode(ctx, &n); err != nil {
+				return "", err
+			}
 			continue
 		}
 		server, err := m.Store.GetServer(ctx, *n.ServerID)

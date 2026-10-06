@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -69,13 +70,21 @@ func ValidateDesired(d *DesiredState, serverID, lastRevision int64, lastHash str
 			if id, _ := n.Params["uuid"].(string); len(id) != 36 {
 				return errors.New("成员节点缺少凭据")
 			}
+			if len(n.AllowFrom) > 32 {
+				return errors.New("成员节点的来源地址过多")
+			}
+			for _, a := range n.AllowFrom {
+				if _, err := netip.ParseAddr(a); err != nil {
+					return errors.New("成员节点的来源地址无效")
+				}
+			}
 			if err := ValidateParams(n.Params, 0); err != nil {
 				return err
 			}
 			ids[n.NodeID] = true
 			continue
 		}
-		if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort < 1 || n.ListenPort > 65535 || ports[n.ListenPort] {
+		if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort < 1 || n.ListenPort > 65535 || ports[n.ListenPort] || len(n.AllowFrom) > 0 {
 			return errors.New("节点标识或端口无效")
 		}
 		ids[n.NodeID] = true

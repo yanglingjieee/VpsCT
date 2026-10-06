@@ -229,7 +229,10 @@ type NodeSpec struct {
 	ShareID         *int64                         `json:"share_id,omitempty"`
 	// AttachTo > 0 makes this spec one more credential on that node's listener.
 	// It owns no port; accounting and blocking use its own NodeID.
-	AttachTo       int64          `json:"attach_to,omitempty"`
+	AttachTo int64 `json:"attach_to,omitempty"`
+	// AllowFrom, when set, limits a member to clients connecting from these
+	// addresses: a landing credential is only valid from its entry servers.
+	AllowFrom      []string       `json:"allow_from,omitempty"`
 	Blocked        bool           `json:"blocked"`
 	ConnlogEnabled bool           `json:"connlog_enabled"`
 	Params         map[string]any `json:"params"` // server-side protocol params

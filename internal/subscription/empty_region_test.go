@@ -52,7 +52,7 @@ func TestMissingRegionUsesAvailableProxies(t *testing.T) {
 	if got := expandAllMarkers([]string{"DIRECT"}, []string{p.Name}); len(got) != 1 || got[0] != "DIRECT" {
 		t.Fatal("explicit direct policy changed")
 	}
-	if got := expandAllMarkers([]string{"{{all|JP}}"}, nil); len(got) != 1 || got[0] != "DIRECT" {
+	if got := expandAllMarkers([]string{"{{all|JP}}"}, nil); len(got) != 1 || got[0] != "REJECT" {
 		t.Fatal("empty subscription fallback invalid")
 	}
 	if got := expandAllMarkers([]string{"{{all|JP}}"}, []string{"JP fixture", p.Name}); len(got) != 1 || got[0] != "JP fixture" {

@@ -50,7 +50,7 @@ func expandAllMarkers(items, allNames []string) []string {
 		if hasMarker && len(allNames) > 0 {
 			return append([]string(nil), allNames...)
 		}
-		return []string{"DIRECT"}
+		return []string{EmptyGroupPolicy}
 	}
 	return out
 }
@@ -98,7 +98,7 @@ func RenderMihomo(b *Bundle) (*Rendered, error) {
 		groupsNode := &yaml.Node{Kind: yaml.SequenceNode}
 		def := domain.ProxyGroup{Name: "PROXY", Type: "select", Proxies: append([]string{}, allNames...)}
 		if len(def.Proxies) == 0 {
-			def.Proxies = []string{"DIRECT"}
+			def.Proxies = []string{EmptyGroupPolicy}
 		}
 		groupsNode.Content = append(groupsNode.Content, groupMapNode(def))
 		setMapKey(root, "proxy-groups", groupsNode)
@@ -130,7 +130,7 @@ func RenderMihomo(b *Bundle) (*Rendered, error) {
 					}
 				}
 				if len(kept) == 0 {
-					kept = []*yaml.Node{{Kind: yaml.ScalarNode, Value: "DIRECT"}}
+					kept = []*yaml.Node{{Kind: yaml.ScalarNode, Value: EmptyGroupPolicy}}
 				}
 				members.Content = kept
 			}
@@ -240,7 +240,7 @@ func expandGroupMarkers(groups *yaml.Node, allNames []string) {
 					expanded = append(expanded, &yaml.Node{Kind: yaml.ScalarNode, Value: name})
 				}
 			} else {
-				expanded = []*yaml.Node{{Kind: yaml.ScalarNode, Value: "DIRECT"}}
+				expanded = []*yaml.Node{{Kind: yaml.ScalarNode, Value: EmptyGroupPolicy}}
 			}
 		}
 		list.Content = expanded

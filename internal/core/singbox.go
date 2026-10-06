@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -276,7 +277,26 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			}
 			memberOut := fmt.Sprintf("node-%d-direct", m.NodeID)
 			outbounds = append(outbounds, map[string]any{"type": "direct", "tag": memberOut, "routing_mark": memberMark})
-			rules = append(rules, map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "auth_user": []string{MemberUser(m.NodeID)}, "action": "route", "outbound": memberOut})
+			allow := map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "auth_user": []string{MemberUser(m.NodeID)}, "action": "route", "outbound": memberOut}
+			if len(m.AllowFrom) > 0 {
+				sources := []string{}
+				for _, a := range m.AllowFrom {
+					addr, err := netip.ParseAddr(a)
+					if err != nil {
+						return nil, fmt.Errorf("node %d: 来源地址无效", m.NodeID)
+					}
+					addr = addr.Unmap()
+					sources = append(sources, netip.PrefixFrom(addr, addr.BitLen()).String())
+					if addr.Is4() {
+						// The listener is dual-stack; accept the mapped form too.
+						sources = append(sources, netip.PrefixFrom(netip.AddrFrom16(addr.As16()), 128).String())
+					}
+				}
+				allow["source_ip_cidr"] = sources
+				rules = append(rules, allow, map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "auth_user": []string{MemberUser(m.NodeID)}, "action": "reject"})
+			} else {
+				rules = append(rules, allow)
+			}
 			users = append(users, map[string]any{"name": MemberUser(m.NodeID), "uuid": str(m.Params, "uuid"), "flow": firstNonEmpty(str(m.Params, "flow"), "xtls-rprx-vision")})
 		}
 		rules = append(rules, map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "action": "route", "outbound": outTag})

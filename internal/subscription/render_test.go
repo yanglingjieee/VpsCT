@@ -126,7 +126,7 @@ func TestRenderMihomoFiltersUnsupportedSnell(t *testing.T) {
 				t.Fatal("compatible nodes were removed")
 			}
 			members := doc["proxy-groups"].([]any)[0].(map[string]any)["proxies"].([]any)
-			if len(members) != 1 || members[0] != "DIRECT" {
+			if len(members) != 1 || members[0] != "REJECT" {
 				t.Fatalf("empty group fallback: %v", members)
 			}
 			if len(b.Proxies) != 6 || len(b.Chains) != 4 || b.Proxies[5].Int("version") != 6 {

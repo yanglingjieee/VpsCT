@@ -548,15 +548,18 @@ const (
 	SettingConnlogRetention = "connlog.retention_days"
 	SettingAggRetention     = "connlog.aggregate_retention_days"
 	SettingConnlogSelf      = "connlog.self_enabled"
-	SettingSampleRetention  = "traffic.sample_retention_hours"
-	SettingHourlyRetention  = "traffic.hourly_retention_days"
-	SettingAccessRetention  = "access_log.retention_days"
-	SettingAgentOfflineSec  = "agent.offline_after_seconds"
-	SettingQuotaAlertPct    = "quota.alert_percent"
-	SettingSingBoxVersion   = "core.singbox_version"
-	SettingSnellVersion     = "core.snell_version"
-	SettingMitaVersion      = "core.mita_version"
-	SettingRateLimitPerMin  = "security.subscription_rate_per_min"
+	// SettingLandingSourceCheck (default on) accepts a landing credential only
+	// from the entry servers of its lines.
+	SettingLandingSourceCheck = "lines.landing_source_check"
+	SettingSampleRetention    = "traffic.sample_retention_hours"
+	SettingHourlyRetention    = "traffic.hourly_retention_days"
+	SettingAccessRetention    = "access_log.retention_days"
+	SettingAgentOfflineSec    = "agent.offline_after_seconds"
+	SettingQuotaAlertPct      = "quota.alert_percent"
+	SettingSingBoxVersion     = "core.singbox_version"
+	SettingSnellVersion       = "core.snell_version"
+	SettingMitaVersion        = "core.mita_version"
+	SettingRateLimitPerMin    = "security.subscription_rate_per_min"
 )
 
 // Protocol identifiers (Clash/mihomo spelling).

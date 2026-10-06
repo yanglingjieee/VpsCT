@@ -81,9 +81,17 @@ type Bundle struct {
 	Userinfo      *Userinfo
 	InfoNodes     []string
 	GeneratedAt   time.Time
+	// Order, when set, is what users choose from, in menu order. Proxies that
+	// only carry another line (an entry used purely as a relay hop) stay out.
+	Order []string
 }
 
-// AllProxyNames returns proxies + chains in output order.
+// EmptyGroupPolicy fills a group that has no usable member. A subscription
+// whose lines are gone must stop working, not quietly connect directly.
+const EmptyGroupPolicy = "REJECT"
+
+// AllProxyNames returns the selectable names: Order when set, otherwise
+// proxies + chains in output order.
 func (b *Bundle) AllProxyNames() []string {
 	out := make([]string, 0, len(b.Proxies)+len(b.Chains))
 	for _, p := range b.Proxies {
@@ -92,7 +100,21 @@ func (b *Bundle) AllProxyNames() []string {
 	for _, c := range b.Chains {
 		out = append(out, c.Proxy.Name)
 	}
-	return out
+	if len(b.Order) == 0 {
+		return out
+	}
+	exists := make(map[string]bool, len(out))
+	for _, n := range out {
+		exists[n] = true
+	}
+	ordered := make([]string, 0, len(b.Order))
+	for _, n := range b.Order {
+		if exists[n] {
+			ordered = append(ordered, n)
+			exists[n] = false
+		}
+	}
+	return ordered
 }
 
 // builtinPolicies are names that never need to exist as proxies.
@@ -156,8 +178,7 @@ func ResolveGroups(groups []domain.ProxyGroup, proxies []proxynode.Proxy, chains
 			}
 		}
 		if len(members) == 0 {
-			// avoid invalid config: fall back to DIRECT
-			members = []string{"DIRECT"}
+			members = []string{EmptyGroupPolicy}
 		}
 		g2 := g
 		g2.Proxies = members

@@ -291,8 +291,22 @@ func (s *Service) Build(ctx context.Context, sub domain.Subscription) (*Bundle, 
 			b.InfoNodes = []string{shareStatusLine(sh.Status)}
 			return b, nil
 		}
-		nodes, err = s.Store.ListNodes(ctx, store.NodeFilter{ShareID: sub.ShareID, OnlyEnabled: true})
+		owned, err := s.Store.ListNodes(ctx, store.NodeFilter{ShareID: sub.ShareID, OnlyEnabled: true})
 		if err != nil {
+			return nil, err
+		}
+		// Member credentials are not proxies by themselves: they appear as
+		// the lines they belong to.
+		var members []domain.Node
+		nodes = []domain.Node{}
+		for _, n := range owned {
+			if n.AttachNodeID != nil {
+				members = append(members, n)
+			} else {
+				nodes = append(nodes, n)
+			}
+		}
+		if err := s.appendLines(ctx, b, hosts, sh, members); err != nil {
 			return nil, err
 		}
 		if len(sh.ExtraNodeIDs) > 0 {
@@ -314,6 +328,8 @@ func (s *Service) Build(ctx context.Context, sub domain.Subscription) (*Bundle, 
 	if nodes != nil {
 		byID := map[int64]domain.Node{}
 		var standalones []domain.Node
+		lineProxies, lineChains := b.Proxies, b.Chains
+		b.Proxies, b.Chains = nil, nil
 		for _, n := range nodes {
 			if n.Source == domain.NodeImported && proxynode.IsSubscriptionInfo(proxynode.FromDomain(n)) {
 				continue
@@ -339,6 +355,31 @@ func (s *Service) Build(ctx context.Context, sub domain.Subscription) (*Bundle, 
 				continue
 			}
 			s.appendChain(ctx, b, hosts, byID, nameByID, *n.ChainFrontNodeID, n.ID, n.Name)
+		}
+		// Lines keep their names and come first; anything else follows.
+		if len(lineProxies)+len(lineChains) > 0 {
+			taken := map[string]bool{}
+			for _, p := range lineProxies {
+				taken[p.Name] = true
+			}
+			for _, c := range lineChains {
+				taken[c.Proxy.Name] = true
+			}
+			for _, p := range b.Proxies {
+				if !taken[p.Name] {
+					taken[p.Name] = true
+					lineProxies = append(lineProxies, p)
+					b.Order = append(b.Order, p.Name)
+				}
+			}
+			for _, c := range b.Chains {
+				if !taken[c.Proxy.Name] {
+					taken[c.Proxy.Name] = true
+					lineChains = append(lineChains, c)
+					b.Order = append(b.Order, c.Proxy.Name)
+				}
+			}
+			b.Proxies, b.Chains = lineProxies, lineChains
 		}
 		if len(sub.ProxyGroups) > 0 && !subscriptionFollowsTemplate(sub) {
 			b.Groups = ResolveGroups(sub.ProxyGroups, b.Proxies, b.Chains, nameByID)
@@ -500,8 +541,38 @@ func (s *Service) Render(ctx context.Context, sub domain.Subscription, format st
 	if err != nil {
 		return nil, nil, err
 	}
+	// One link serves every client: when the chosen template is for another
+	// format, use the site's default template for the requested one.
+	if kind := templateKind(format); kind != "" && (b.Template == nil || b.Template.Kind != kind) {
+		if id := s.Store.GetSettingInt(ctx, DefaultTemplateSetting(kind), 0); id > 0 {
+			if t, err := s.Store.GetTemplate(ctx, int64(id)); err == nil && t.Kind == kind {
+				b.Template = &t
+			}
+		}
+	}
 	r, err := RenderBundle(b, format)
 	return r, b, err
+}
+
+// DefaultTemplateSetting is the settings key holding the default template id
+// for a template kind (mihomo, shadowrocket, surge, singbox).
+func DefaultTemplateSetting(kind string) string { return "subscription.template." + kind }
+
+// TemplateKinds lists the formats that render through a template.
+var TemplateKinds = []string{"mihomo", "shadowrocket", "surge", "singbox"}
+
+func templateKind(format string) string {
+	switch NormalizeFormat(format) {
+	case FormatRaw, FormatURIList:
+		return ""
+	case FormatShadowrocket:
+		return "shadowrocket"
+	case FormatSurge:
+		return "surge"
+	case FormatSingBox:
+		return "singbox"
+	}
+	return "mihomo"
 }
 
 // RenderBundle dispatches on format.
