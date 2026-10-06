@@ -78,19 +78,16 @@ func TestShareLifecycle(t *testing.T) {
 	if len(sub.ProxyGroups) != 0 || len(sub.Rules) != 0 {
 		t.Fatalf("share must follow the template, not stock 节点选择: %+v %v", sub.ProxyGroups, sub.Rules)
 	}
-	// old rows that still have the stock groups must not hide ⚡️ smart
-	sub.ProxyGroups = []domain.ProxyGroup{{Name: "节点选择", Type: "select", IncludeAll: true}}
-	sub.Rules = []string{"MATCH,节点选择"}
+	// leftover editor groups on old rows must not replace the user's rules
+	sub.ProxyGroups = []domain.ProxyGroup{{Name: "旧分组", Type: "select", IncludeAll: true}}
+	sub.Rules = []string{"MATCH,旧分组"}
 	rendered, _, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatMihomo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(rendered.Body)
-	if !strings.Contains(body, "⚡️ smart") || !strings.Contains(body, "rule-providers:") {
-		t.Fatalf("share profile missing template groups:\n%s", body[:min(len(body), 800)])
-	}
-	if strings.Contains(body, "name: 节点选择") {
-		t.Fatal("stock 节点选择 leaked over the template")
+	if !strings.Contains(body, "MATCH,节点选择") || strings.Contains(body, "旧分组") {
+		t.Fatalf("a user without a rule set gets the built-in no-rules profile:\n%s", body[:min(len(body), 800)])
 	}
 
 	// consume below quota: stays active
