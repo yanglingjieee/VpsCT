@@ -203,7 +203,9 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("node host: %v", nodes[0].(map[string]any)["server"])
 	}
 
-	// connection logs: share + owner (self-use) nodes
+	// connection logs: share + owner nodes. A listener's own credential is
+	// not recorded unless asked for: users are, each by their own switch.
+	c.do("PUT", "/api/v1/settings", map[string]any{"connlog.self_enabled": "1"}, 200)
 	ownerID := int64(node["id"].(float64))
 	c.do("POST", "/api/agent/v1/connlog", agentproto.ConnlogBatch{Seq: 1, Events: []agentproto.ConnEvent{
 		{TS: time.Now(), NodeID: shareNodeID, Network: "tcp", DestHost: "www.google.com", DestPort: 443, SrcHost: "203.0.113.10"},

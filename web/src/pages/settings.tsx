@@ -137,9 +137,6 @@ function RetentionTab() {
   return (
     <Card className="max-w-2xl p-4 sm:p-5">
       <p className="mb-3 text-sm text-muted-foreground">清理任务每小时执行；缩短保留期会在下一次清理时立刻删除超期数据。连接日志量大时把原始事件降到 3 天，日聚合可留久一点。</p>
-      <div className="mb-4">
-        <Switch checked={s.value("connlog.self_enabled") !== "0"} onChange={(v) => s.set("connlog.self_enabled", v ? "1" : "0")} label="记录自用节点连接（关闭后只记开启了日志的分享）" />
-      </div>
       <div className="grid gap-4">
         {rows.map(([k, label, hint]) => <Field key={k} label={label} hint={hint}><Input type="number" min={1} value={s.value(k)} onChange={(e) => s.set(k, e.target.value)} /></Field>)}
       </div>
@@ -312,7 +309,7 @@ const JOB_LABEL: Record<string, string> = {
   desired_refresh: "期望状态刷新",
   external_sync: "外部订阅同步",
   retention: "过期数据清理",
-  share_tick: "分享配额 / 到期",
+  share_tick: "用户限额 / 到期",
 };
 
 function jobInterval(sec: number): string {

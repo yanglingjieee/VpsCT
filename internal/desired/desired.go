@@ -142,7 +142,7 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 		return nil, err
 	}
 	connlogAny := false
-	selfLog := b.Store.GetSettingBool(ctx, domain.SettingConnlogSelf, true)
+	selfLog := b.Store.GetSettingBool(ctx, domain.SettingConnlogSelf, false)
 	// A member exists only while its listener does: the listener must be a
 	// live, shareable node of this server.
 	listeners := map[int64]bool{}

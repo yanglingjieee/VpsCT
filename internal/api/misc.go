@@ -191,7 +191,7 @@ var editableSettings = map[string]bool{
 var SettingDefaults = map[string]string{
 	domain.SettingSiteName: defaultSiteName, domain.SettingShortLinks: "1", domain.SettingUserinfoDefault: "1",
 	domain.SettingTelegramDaily: "0", domain.SettingTelegramHour: "9",
-	domain.SettingConnlogRetention: "7", domain.SettingAggRetention: "90", domain.SettingConnlogSelf: "1", domain.SettingSampleRetention: "48", domain.SettingHourlyRetention: "14",
+	domain.SettingConnlogRetention: "7", domain.SettingAggRetention: "90", domain.SettingConnlogSelf: "0", domain.SettingSampleRetention: "48", domain.SettingHourlyRetention: "14",
 	domain.SettingAccessRetention: "30", domain.SettingAgentOfflineSec: "120", domain.SettingQuotaAlertPct: "80",
 	domain.SettingRateLimitPerMin: "60", "quota.action": "alert",
 }

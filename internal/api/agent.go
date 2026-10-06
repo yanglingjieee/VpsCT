@@ -503,7 +503,7 @@ func (a *API) agentConnlog(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	selfLog := a.Store.GetSettingBool(r.Context(), domain.SettingConnlogSelf, true)
+	selfLog := a.Store.GetSettingBool(r.Context(), domain.SettingConnlogSelf, false)
 	shareOf := map[int64]*int64{}
 	shares := map[int64]domain.Share{}
 	allowed := map[int64]bool{}

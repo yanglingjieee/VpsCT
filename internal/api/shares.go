@@ -565,7 +565,7 @@ func (a *API) connlogStats(w http.ResponseWriter, r *http.Request) error {
 		"stats":                    st,
 		"retention_days":           a.Store.GetSettingInt(r.Context(), domain.SettingConnlogRetention, 7),
 		"aggregate_retention_days": a.Store.GetSettingInt(r.Context(), domain.SettingAggRetention, 90),
-		"self_enabled":             a.Store.GetSettingBool(r.Context(), domain.SettingConnlogSelf, true),
+		"self_enabled":             a.Store.GetSettingBool(r.Context(), domain.SettingConnlogSelf, false),
 	})
 	return nil
 }

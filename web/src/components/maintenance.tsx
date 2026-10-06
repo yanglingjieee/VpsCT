@@ -186,7 +186,7 @@ sudo bash "$vpsct_uninstaller" --agent --purge --dry-run`}</Pre>
     </>}>
       <div className="space-y-4">
         {selected === "update" ? <p className="text-sm leading-6">{controller ? `${reinstall ? "重新安装" : "升级至"} ${target}。${reinstall ? "重新下载并校验官方发行包，同步更新控制端及 agent 分发文件。" : ""}将停服备份数据，再更换程序并检查启动情况；启动失败会恢复旧程序和升级前数据。${reinstall ? "若当前程序无法通过恢复校验，会在停服前终止，不会跳过安全检查。" : ""}` : `${reinstall ? "重新安装" : "同步"}控制端提供的 ${target}。${reinstall ? "即使当前程序已同步，也会重新下载、校验并替换。" : ""}agent 会短暂重启；新程序启动失败时恢复旧程序。`}</p> : <>
-          <p className="text-sm leading-6">{controller ? "将停止并移除控制端及维护服务。完成后此网站不可用，已接入的远端 agent 继续保留。" : deleteAfter ? "将卸载 agent 及它在这台服务器上部署的服务，相关资源分享也会停止。收到卸载成功结果后，自动删除服务器及关联节点记录；失败时保留记录。" : "将卸载 agent 及它在这台服务器上部署的服务，相关资源分享也会停止；面板中的服务器记录保留。"}</p>
+          <p className="text-sm leading-6">{controller ? "将停止并移除控制端及维护服务。完成后此网站不可用，已接入的远端 agent 继续保留。" : deleteAfter ? "将卸载 agent 及它在这台服务器上部署的服务，这台服务器上的入站和经过它的线路也会停止。收到卸载成功结果后，自动删除服务器及关联节点记录；失败时保留记录。" : "将卸载 agent 及它在这台服务器上部署的服务，这台服务器上的入站和经过它的线路也会停止；面板中的服务器记录保留。"}</p>
           <Field label="数据处理"><Select value={purge ? "purge" : "keep"} onChange={(e) => { setPurge(e.target.value === "purge"); if (e.target.value !== "purge") setRemoveCaddy(false); }}>
             <option value="keep">保留配置和数据（默认）</option><option value="purge">同时清空配置、凭据、日志和备份</option>
           </Select></Field>
