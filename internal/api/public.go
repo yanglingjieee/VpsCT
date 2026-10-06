@@ -157,11 +157,17 @@ func (a *API) serveSub(w http.ResponseWriter, r *http.Request, sub domain.Subscr
 	w.Header().Set("Content-Type", rendered.ContentType)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Profile-Update-Interval", "6")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="clash%s"; filename*=UTF-8''%s`, extFor(rendered.Format), encodeFilename(sub.Name, rendered.Format)))
+	// A user's profile is named after the site: in their client it is "the
+	// service", not their own name.
+	title := sub.Name
+	if sub.ShareID != nil {
+		title = a.Store.GetSetting(ctx, domain.SettingSiteName, defaultSiteName)
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="clash%s"; filename*=UTF-8''%s`, extFor(rendered.Format), encodeFilename(title, rendered.Format)))
 	if sub.UserinfoHeader && bundle.Userinfo != nil {
 		w.Header().Set("Subscription-Userinfo", bundle.Userinfo.Header())
 	}
-	if title := sub.Name; title != "" {
+	if title != "" {
 		w.Header().Set("Profile-Title", "base64:"+base64Std(title))
 	}
 	if short {
