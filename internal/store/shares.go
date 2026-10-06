@@ -8,15 +8,15 @@ import (
 	"ctlvps/internal/domain"
 )
 
-const shareCols = `id, name, user_id, targets, extra_node_ids, quota_bytes, billing_mode, reset_day, expires_at, status, template_id, connlog_enabled, notes, subscription_id, period_start, used_upload, used_download, created_at, updated_at`
+const shareCols = `id, name, user_id, targets, extra_node_ids, line_mode, line_ids, quota_bytes, billing_mode, reset_day, expires_at, status, template_id, connlog_enabled, notes, subscription_id, period_start, used_upload, used_download, created_at, updated_at`
 
 func scanShare(sc interface{ Scan(...any) error }) (domain.Share, error) {
 	var v domain.Share
 	var userID, templateID, subID sql.NullInt64
 	var expires sql.NullString
-	var targets, extra, period, created, updated string
+	var targets, extra, lines, period, created, updated string
 	var connlog int
-	if err := sc.Scan(&v.ID, &v.Name, &userID, &targets, &extra, &v.QuotaBytes, &v.BillingMode, &v.ResetDay, &expires, &v.Status, &templateID, &connlog,
+	if err := sc.Scan(&v.ID, &v.Name, &userID, &targets, &extra, &v.LineMode, &lines, &v.QuotaBytes, &v.BillingMode, &v.ResetDay, &expires, &v.Status, &templateID, &connlog,
 		&v.Notes, &subID, &period, &v.UsedUpload, &v.UsedDownload, &created, &updated); err != nil {
 		return v, err
 	}
@@ -26,6 +26,7 @@ func scanShare(sc interface{ Scan(...any) error }) (domain.Share, error) {
 	v.ExpiresAt = parseTimePtr(expires)
 	v.Targets = jsonList[domain.ShareTarget](targets)
 	v.ExtraNodeIDs = jsonList[int64](extra)
+	v.LineIDs = jsonList[int64](lines)
 	v.ConnlogEnabled = connlog == 1
 	v.PeriodStart = parseTime(period)
 	v.CreatedAt = parseTime(created)
@@ -40,13 +41,16 @@ func shareArgs(v *domain.Share) []any {
 	if v.ExtraNodeIDs == nil {
 		v.ExtraNodeIDs = []int64{}
 	}
+	if v.LineIDs == nil {
+		v.LineIDs = []int64{}
+	}
 	if v.BillingMode == "" {
 		v.BillingMode = domain.BillingDual
 	}
 	if v.Status == "" {
 		v.Status = domain.ShareActive
 	}
-	return []any{v.Name, nullInt(v.UserID), jsonStr(v.Targets), jsonStr(v.ExtraNodeIDs), v.QuotaBytes, v.BillingMode, v.ResetDay, fmtTimePtr(v.ExpiresAt), v.Status,
+	return []any{v.Name, nullInt(v.UserID), jsonStr(v.Targets), jsonStr(v.ExtraNodeIDs), v.LineMode, jsonStr(v.LineIDs), v.QuotaBytes, v.BillingMode, v.ResetDay, fmtTimePtr(v.ExpiresAt), v.Status,
 		nullInt(v.TemplateID), b2i(v.ConnlogEnabled), v.Notes, nullInt(v.SubscriptionID), fmtTime(v.PeriodStart), v.UsedUpload, v.UsedDownload}
 }
 
@@ -57,8 +61,8 @@ func (s *Store) CreateShare(ctx context.Context, v *domain.Share) error {
 		v.PeriodStart = now
 	}
 	args := append(shareArgs(v), fmtTime(now), fmtTime(now))
-	res, err := s.db.ExecContext(ctx, `INSERT INTO shares(name,user_id,targets,extra_node_ids,quota_bytes,billing_mode,reset_day,expires_at,status,template_id,connlog_enabled,notes,subscription_id,period_start,used_upload,used_download,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO shares(name,user_id,targets,extra_node_ids,line_mode,line_ids,quota_bytes,billing_mode,reset_day,expires_at,status,template_id,connlog_enabled,notes,subscription_id,period_start,used_upload,used_download,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
 	if err != nil {
 		return err
 	}
@@ -71,7 +75,7 @@ func (s *Store) CreateShare(ctx context.Context, v *domain.Share) error {
 func (s *Store) UpdateShare(ctx context.Context, v *domain.Share) error {
 	now := s.Now()
 	args := append(shareArgs(v), fmtTime(now), v.ID)
-	_, err := s.db.ExecContext(ctx, `UPDATE shares SET name=?,user_id=?,targets=?,extra_node_ids=?,quota_bytes=?,billing_mode=?,reset_day=?,expires_at=?,status=?,template_id=?,connlog_enabled=?,notes=?,subscription_id=?,period_start=?,used_upload=?,used_download=?,updated_at=? WHERE id=?`, args...)
+	_, err := s.db.ExecContext(ctx, `UPDATE shares SET name=?,user_id=?,targets=?,extra_node_ids=?,line_mode=?,line_ids=?,quota_bytes=?,billing_mode=?,reset_day=?,expires_at=?,status=?,template_id=?,connlog_enabled=?,notes=?,subscription_id=?,period_start=?,used_upload=?,used_download=?,updated_at=? WHERE id=?`, args...)
 	v.UpdatedAt = now
 	return err
 }

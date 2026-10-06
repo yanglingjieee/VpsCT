@@ -667,4 +667,23 @@ ALTER TABLE sessions ADD COLUMN security_version INTEGER NOT NULL DEFAULT 0;`,
 	`ALTER TABLE managed_transits ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1));`,
 	// v30: freeze the effective version before changing fresh-install defaults.
 	coreVersionPinMigration,
+	// v31: several users on one listener. A member node has no port of its own:
+	// it is one more credential on attach_node_id's inbound, metered by its own
+	// mark. Lines name the paths (entry, optional landing) a share may use.
+	`ALTER TABLE nodes ADD COLUMN attach_node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE;
+ ALTER TABLE nodes ADD COLUMN uncounted INTEGER NOT NULL DEFAULT 0 CHECK(uncounted IN (0,1));
+ CREATE INDEX idx_nodes_attach ON nodes(attach_node_id);
+ ALTER TABLE servers ADD COLUMN prefer_ipv6 INTEGER NOT NULL DEFAULT 0 CHECK(prefer_ipv6 IN (0,1));
+ ALTER TABLE shares ADD COLUMN line_mode TEXT NOT NULL DEFAULT '' CHECK(line_mode IN ('','all','selected'));
+ ALTER TABLE shares ADD COLUMN line_ids TEXT NOT NULL DEFAULT '[]';
+ CREATE TABLE lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  entry_node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  landing_node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+ );`,
 }

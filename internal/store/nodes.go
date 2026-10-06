@@ -12,19 +12,19 @@ import (
 	"ctlvps/internal/networkconfig"
 )
 
-const nodeCols = `id, name, protocol, server, port, params, server_params, source, server_id, listen_port, core, share_id, external_sub_id, chain_front_node_id, enabled, owner_user_id, tags, sort_order, revoked, created_at, updated_at,
+const nodeCols = `id, name, protocol, server, port, params, server_params, source, server_id, listen_port, core, share_id, external_sub_id, chain_front_node_id, enabled, owner_user_id, tags, sort_order, revoked, attach_node_id, uncounted, created_at, updated_at,
  (SELECT policy FROM node_networks WHERE node_id=nodes.id),
  (SELECT revision FROM node_networks WHERE node_id=nodes.id)`
 
 func (s *Store) scanNode(sc interface{ Scan(...any) error }) (domain.Node, error) {
 	var n domain.Node
 	var params, serverParams, tags, created, updated string
-	var serverID, shareID, extID, chainID sql.NullInt64
-	var enabled, revoked int
+	var serverID, shareID, extID, chainID, attachID sql.NullInt64
+	var enabled, revoked, uncounted int
 	var network sql.NullString
 	var networkRevision sql.NullInt64
 	if err := sc.Scan(&n.ID, &n.Name, &n.Protocol, &n.Server, &n.Port, s.scanSecret("nodes.params", &params), s.scanSecret("nodes.server_params", &serverParams), &n.Source, &serverID, &n.ListenPort, &n.Core,
-		&shareID, &extID, &chainID, &enabled, &n.OwnerUserID, &tags, &n.SortOrder, &revoked, &created, &updated, &network, &networkRevision); err != nil {
+		&shareID, &extID, &chainID, &enabled, &n.OwnerUserID, &tags, &n.SortOrder, &revoked, &attachID, &uncounted, &created, &updated, &network, &networkRevision); err != nil {
 		return n, err
 	}
 	n.Params = rawOrEmpty(params)
@@ -33,6 +33,8 @@ func (s *Store) scanNode(sc interface{ Scan(...any) error }) (domain.Node, error
 	n.ShareID = intPtr(shareID)
 	n.ExternalSubID = intPtr(extID)
 	n.ChainFrontNodeID = intPtr(chainID)
+	n.AttachNodeID = intPtr(attachID)
+	n.Uncounted = uncounted == 1
 	n.Enabled = enabled == 1
 	n.Revoked = revoked == 1
 	n.Tags = jsonList[string](tags)
@@ -65,7 +67,7 @@ func (s *Store) nodeArgs(n *domain.Node) []any {
 		n.Source = domain.NodeManual
 	}
 	return []any{n.Name, n.Protocol, n.Server, n.Port, s.seal("nodes.params", string(n.Params)), s.seal("nodes.server_params", string(n.ServerParams)), n.Source, nullInt(n.ServerID), n.ListenPort, n.Core,
-		nullInt(n.ShareID), nullInt(n.ExternalSubID), nullInt(n.ChainFrontNodeID), b2i(n.Enabled), n.OwnerUserID, jsonStr(n.Tags), n.SortOrder, b2i(n.Revoked)}
+		nullInt(n.ShareID), nullInt(n.ExternalSubID), nullInt(n.ChainFrontNodeID), b2i(n.Enabled), n.OwnerUserID, jsonStr(n.Tags), n.SortOrder, b2i(n.Revoked), nullInt(n.AttachNodeID), b2i(n.Uncounted)}
 }
 
 // CreateNode inserts a node.
@@ -112,8 +114,8 @@ func (s *Store) createNode(ctx context.Context, q querier, n *domain.Node) error
 	}
 	now := s.Now()
 	args := append(s.nodeArgs(n), fmtTime(now), fmtTime(now))
-	res, err := q.ExecContext(ctx, `INSERT INTO nodes(name,protocol,server,port,params,server_params,source,server_id,listen_port,core,share_id,external_sub_id,chain_front_node_id,enabled,owner_user_id,tags,sort_order,revoked,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
+	res, err := q.ExecContext(ctx, `INSERT INTO nodes(name,protocol,server,port,params,server_params,source,server_id,listen_port,core,share_id,external_sub_id,chain_front_node_id,enabled,owner_user_id,tags,sort_order,revoked,attach_node_id,uncounted,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
 	if err != nil {
 		return err
 	}
@@ -135,7 +137,7 @@ func (s *Store) UpdateNode(ctx context.Context, n *domain.Node) error {
 	args := append(s.nodeArgs(n), fmtTime(now), n.ID)
 	// Ordinary edits never write the independently versioned network policy
 	// or its access address, including stale forms and credential rotations.
-	_, err := s.db.ExecContext(ctx, `UPDATE nodes SET name=?,protocol=?,server=CASE WHEN EXISTS(SELECT 1 FROM node_networks WHERE node_id=nodes.id AND policy<>'null') THEN server ELSE ? END,port=?,params=?,server_params=?,source=?,server_id=?,listen_port=?,core=?,share_id=?,external_sub_id=?,chain_front_node_id=?,enabled=?,owner_user_id=?,tags=?,sort_order=?,revoked=?,updated_at=? WHERE id=?`, args...)
+	_, err := s.db.ExecContext(ctx, `UPDATE nodes SET name=?,protocol=?,server=CASE WHEN EXISTS(SELECT 1 FROM node_networks WHERE node_id=nodes.id AND policy<>'null') THEN server ELSE ? END,port=?,params=?,server_params=?,source=?,server_id=?,listen_port=?,core=?,share_id=?,external_sub_id=?,chain_front_node_id=?,enabled=?,owner_user_id=?,tags=?,sort_order=?,revoked=?,attach_node_id=?,uncounted=?,updated_at=? WHERE id=?`, args...)
 	n.UpdatedAt = now
 	return err
 }
@@ -257,7 +259,7 @@ func (s *Store) ReplaceExternalNodes(ctx context.Context, extID int64, fresh []d
 				n.Enabled = old.Enabled
 				n.OwnerUserID = old.OwnerUserID
 				args := append(s.nodeArgs(n), now, n.ID)
-				if _, err := tx.ExecContext(ctx, `UPDATE nodes SET name=?,protocol=?,server=?,port=?,params=?,server_params=?,source=?,server_id=?,listen_port=?,core=?,share_id=?,external_sub_id=?,chain_front_node_id=?,enabled=?,owner_user_id=?,tags=?,sort_order=?,revoked=?,updated_at=? WHERE id=?`, args...); err != nil {
+				if _, err := tx.ExecContext(ctx, `UPDATE nodes SET name=?,protocol=?,server=?,port=?,params=?,server_params=?,source=?,server_id=?,listen_port=?,core=?,share_id=?,external_sub_id=?,chain_front_node_id=?,enabled=?,owner_user_id=?,tags=?,sort_order=?,revoked=?,attach_node_id=?,uncounted=?,updated_at=? WHERE id=?`, args...); err != nil {
 					return err
 				}
 				updated++

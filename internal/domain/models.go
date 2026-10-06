@@ -94,7 +94,8 @@ type Server struct {
 	QuotaBilling  string    `json:"quota_billing"`   // kept for compat; quota always uses inbound+outbound
 	CoreMode      CoreMode  `json:"core_mode"`
 	IPv4Only      bool      `json:"ipv4_only"`
-	CertMode      string    `json:"cert_mode"` // self_signed|acme|external
+	PreferIPv6    bool      `json:"prefer_ipv6"` // outbound prefers AAAA, falls back to A; ignored when IPv4Only
+	CertMode      string    `json:"cert_mode"`   // self_signed|acme|external
 	Enabled       bool      `json:"enabled"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -173,14 +174,40 @@ type Node struct {
 	ShareID          *int64              `json:"share_id,omitempty"`
 	ExternalSubID    *int64              `json:"external_sub_id,omitempty"`
 	ChainFrontNodeID *int64              `json:"chain_front_node_id,omitempty"`
-	Enabled          bool                `json:"enabled"`
-	OwnerUserID      int64               `json:"owner_user_id"`
-	Tags             []string            `json:"tags"`
-	SortOrder        int                 `json:"sort_order"`
-	Revoked          bool                `json:"revoked"`
-	CreatedAt        time.Time           `json:"created_at"`
-	UpdatedAt        time.Time           `json:"updated_at"`
+	// AttachNodeID makes this a member node: one more credential on that
+	// node's listener, with its own accounting identity and no port.
+	AttachNodeID *int64 `json:"attach_node_id,omitempty"`
+	// Uncounted member traffic is metered but not charged to the share: a
+	// landing hop repeats what the entry hop already counted.
+	Uncounted   bool      `json:"uncounted,omitempty"`
+	Enabled     bool      `json:"enabled"`
+	OwnerUserID int64     `json:"owner_user_id"`
+	Tags        []string  `json:"tags"`
+	SortOrder   int       `json:"sort_order"`
+	Revoked     bool      `json:"revoked"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// Line is one selectable path: clients connect to Entry and, when Landing is
+// set, reach the internet through Landing by dialing it via Entry.
+type Line struct {
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	EntryNodeID   int64     `json:"entry_node_id"`
+	LandingNodeID *int64    `json:"landing_node_id,omitempty"`
+	SortOrder     int       `json:"sort_order"`
+	Enabled       bool      `json:"enabled"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// Share line modes. Empty keeps the original dedicated-inbound behaviour.
+const (
+	ShareLinesNone     = ""
+	ShareLinesAll      = "all"      // every enabled line, including later ones
+	ShareLinesSelected = "selected" // only LineIDs
+)
 
 // ExternalSubscription is an "airport" subscription URL that we pull nodes
 // and subscription-userinfo from.
@@ -350,9 +377,11 @@ type Share struct {
 	UserID         *int64        `json:"user_id,omitempty"`
 	Targets        []ShareTarget `json:"targets"`
 	ExtraNodeIDs   []int64       `json:"extra_node_ids"` // imported nodes mixed in (soft limit only)
-	QuotaBytes     int64         `json:"quota_bytes"`    // 0 = unlimited
-	BillingMode    string        `json:"billing_mode"`   // kept for compat; quota always uses inbound+outbound
-	ResetDay       int           `json:"reset_day"`      // 1..28, or 31 = last day; 0 = never
+	LineMode       string        `json:"line_mode"`      // "", "all" or "selected"; see ShareLines*
+	LineIDs        []int64       `json:"line_ids"`
+	QuotaBytes     int64         `json:"quota_bytes"`  // 0 = unlimited
+	BillingMode    string        `json:"billing_mode"` // kept for compat; quota always uses inbound+outbound
+	ResetDay       int           `json:"reset_day"`    // 1..28, or 31 = last day; 0 = never
 	ExpiresAt      *time.Time    `json:"expires_at,omitempty"`
 	Status         ShareStatus   `json:"status"`
 	TemplateID     *int64        `json:"template_id,omitempty"`

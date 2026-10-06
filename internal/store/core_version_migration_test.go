@@ -25,13 +25,9 @@ func TestCoreVersionMigrationPreservesLegacyDefaultsAndExplicitPins(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "legacy.db")
-			s, err := Open(path)
+			// A real v29 installation, including one with no users or servers yet.
+			s, err := openAtSchema(path, 29)
 			if err != nil {
-				t.Fatal(err)
-			}
-			// v30 changes data only, so this reconstructs a v29 installation,
-			// including one with no users or servers yet.
-			if _, err = s.db.Exec("UPDATE schema_version SET version=29; DELETE FROM settings WHERE key='core.singbox_version'"); err != nil {
 				t.Fatal(err)
 			}
 			if !tc.missing {
@@ -90,8 +86,12 @@ func TestFreshCoreDefaultAndExplicitDefaultChoiceArePinned(t *testing.T) {
 }
 
 func TestCorePinMigrationFailsClosedAndRetriesAtomically(t *testing.T) {
-	s := openTest(t)
-	if _, err := s.db.Exec("UPDATE schema_version SET version=29; UPDATE settings SET value='enc:v1:corrupt' WHERE key='core.singbox_version'"); err != nil {
+	s, err := openAtSchema(filepath.Join(t.TempDir(), "legacy.db"), 29)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if _, err := s.db.Exec("INSERT INTO settings(key,value) VALUES('core.singbox_version','enc:v1:corrupt')"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.migrate(); err == nil {
@@ -110,4 +110,13 @@ func TestCorePinMigrationFailsClosedAndRetriesAtomically(t *testing.T) {
 	if got := s.GetSetting(context.Background(), domain.SettingSingBoxVersion, ""); got != "1.12.14" {
 		t.Fatal(got)
 	}
+}
+
+// openAtSchema builds a database that stopped at an older schema version, so
+// later migrations run for real instead of against an already migrated file.
+func openAtSchema(path string, version int) (*Store, error) {
+	all := migrations
+	migrations = all[:version]
+	defer func() { migrations = all }()
+	return Open(path)
 }
