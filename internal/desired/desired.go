@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"sort"
 	"strings"
 	"time"
 
@@ -147,6 +146,7 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 	// A member exists only while its listener does: the listener must be a
 	// live, shareable node of this server.
 	listeners := map[int64]bool{}
+	landingOnly := map[int64]bool{} // credentials no client ever connects with
 	for _, item := range nodes {
 		if n := item.Node; !n.Revoked && store.LineNodeUsable(n) == nil {
 			listeners[n.ID] = true
@@ -175,9 +175,22 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 				continue
 			}
 			spec.AttachTo, spec.ListenPort = *n.AttachNodeID, 0
-			if n.Uncounted && n.ShareID != nil {
-				if spec.AllowFrom, err = b.landingSources(ctx, n); err != nil {
-					return nil, err
+			if n.LineID == nil || n.ShareID == nil {
+				continue
+			}
+			line, err := b.Store.GetLine(ctx, *n.LineID)
+			if err != nil || !line.Enabled {
+				continue
+			}
+			switch {
+			case n.Landing:
+				landingOnly[n.ID] = true
+				spec.AllowFrom = b.landingSources(ctx, n, line)
+			case line.LandingNodeID != nil:
+				// Without its landing a relay member would leave from this
+				// server, which is a different line: refuse instead.
+				if spec.Relay = b.relayTarget(ctx, n, line); spec.Relay == nil {
+					spec.Blocked = true
 				}
 			}
 		}
@@ -193,8 +206,10 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 				if sh.Status != domain.ShareActive {
 					spec.Blocked = true
 				}
-				spec.ConnlogEnabled = sh.ConnlogEnabled
-				if sh.ConnlogEnabled {
+				// A landing hop only ever sees its entry server; the entry
+				// records the connection with the real client address.
+				spec.ConnlogEnabled = sh.ConnlogEnabled && !landingOnly[n.ID]
+				if spec.ConnlogEnabled {
 					connlogAny = true
 				}
 			}
@@ -394,56 +409,68 @@ func Hash(ds *agentproto.DesiredState) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// landingSources lists the entry servers a landing credential is reached
-// through. It returns nil (no restriction) unless every address involved is
-// a literal IPv4: only then is the entry's source address known for certain.
-func (b *Builder) landingSources(ctx context.Context, member domain.Node) ([]string, error) {
+// landingSources is where a landing credential may be used from: the entry
+// server of its line. It returns nil (no restriction) unless both addresses
+// are literal IPv4, the only case where the entry's source is certain.
+func (b *Builder) landingSources(ctx context.Context, member domain.Node, line domain.Line) []string {
 	if !b.Store.GetSettingBool(ctx, domain.SettingLandingSourceCheck, true) {
-		return nil, nil
-	}
-	sh, err := b.Store.GetShare(ctx, *member.ShareID)
-	if err != nil {
-		return nil, nil
-	}
-	lines, err := b.Store.ShareLines(ctx, sh)
-	if err != nil {
-		return nil, err
+		return nil
 	}
 	ipv4 := func(host string) (string, bool) {
 		a, err := netip.ParseAddr(host)
 		return a.String(), err == nil && a.Is4()
 	}
 	if _, ok := ipv4(member.Server); !ok {
-		return nil, nil
+		return nil
 	}
-	seen := map[string]bool{}
-	out := []string{}
-	for _, l := range lines {
-		if l.LandingNodeID == nil || *l.LandingNodeID != *member.AttachNodeID {
+	entry, err := b.Store.GetNode(ctx, line.EntryNodeID)
+	if err != nil || entry.ServerID == nil {
+		return nil
+	}
+	server, err := b.Store.GetServer(ctx, *entry.ServerID)
+	if err != nil {
+		return nil
+	}
+	if addr, ok := ipv4(server.PublicHost); ok {
+		return []string{addr}
+	}
+	return nil
+}
+
+// relayTarget describes the landing of a relay member: the landing listener
+// and this user's own credential on it.
+func (b *Builder) relayTarget(ctx context.Context, member domain.Node, line domain.Line) *agentproto.RelaySpec {
+	landing, err := b.Store.GetNode(ctx, *line.LandingNodeID)
+	if err != nil || !landing.Enabled || store.LineNodeUsable(landing) != nil {
+		return nil
+	}
+	siblings, err := b.Store.ListNodes(ctx, store.NodeFilter{ShareID: member.ShareID, OnlyEnabled: true})
+	if err != nil {
+		return nil
+	}
+	for _, s := range siblings {
+		if !s.Landing || s.LineID == nil || *s.LineID != line.ID || s.AttachNodeID == nil || *s.AttachNodeID != landing.ID {
 			continue
 		}
-		entry, err := b.Store.GetNode(ctx, l.EntryNodeID)
-		if err != nil || entry.ServerID == nil {
-			continue
+		var cred, srv map[string]any
+		if json.Unmarshal(s.ServerParams, &cred) != nil || json.Unmarshal(landing.ServerParams, &srv) != nil {
+			return nil
 		}
-		server, err := b.Store.GetServer(ctx, *entry.ServerID)
-		if err != nil {
-			continue
+		host := landing.Server
+		if host == "" {
+			if server, err := b.Store.GetServer(ctx, *landing.ServerID); err == nil {
+				host = server.PublicHost
+			}
 		}
-		addr, ok := ipv4(server.PublicHost)
-		if !ok {
-			return nil, nil
+		str := func(m map[string]any, k string) string { v, _ := m[k].(string); return v }
+		r := &agentproto.RelaySpec{Server: host, Port: landing.ListenPort, UUID: str(cred, "uuid"), Flow: str(cred, "flow"),
+			ServerName: str(srv, "handshake_server"), PublicKey: str(srv, "reality_public_key"), ShortID: str(srv, "reality_short_id")}
+		if r.Validate() != nil {
+			return nil
 		}
-		if !seen[addr] {
-			seen[addr] = true
-			out = append(out, addr)
-		}
+		return r
 	}
-	sort.Strings(out)
-	if len(out) == 0 {
-		return nil, nil
-	}
-	return out, nil
+	return nil
 }
 
 // Publish builds the state and stores a new revision when it changed.

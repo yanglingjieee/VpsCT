@@ -21,12 +21,15 @@ import (
 
 // lineRe matches sing-box inbound from/to lines. VLESS Reality often logs
 // "[user] inbound connection to" and a different conn id than the from line.
-var lineRe = regexp.MustCompile(`\[(\d+)(?:\s+[0-9.]+(?:ms|s))?\] inbound/([a-z0-9-]+)\[node-(\d+)\]: (?:\[[^\]]+\] )?inbound (packet )?connection (from|to) (.+)\s*$`)
+var lineRe = regexp.MustCompile(`\[(\d+)(?:\s+[0-9.]+(?:ms|s))?\] inbound/([a-z0-9-]+)\[node-(\d+)\]: (?:\[([^\]]+)\] )?inbound (packet )?connection (from|to) (.+)\s*$`)
 
 type parsedLine struct {
 	ev     agentproto.ConnEvent
 	connID string
 	dir    string // from | to
+	// owner is the member node whose credential authenticated, when the
+	// listener is shared; the event belongs to it, not to the listener.
+	owner int64
 }
 
 func parseLine(line string, now time.Time) (parsedLine, bool) {
@@ -38,12 +41,12 @@ func parseLine(line string, now time.Time) (parsedLine, bool) {
 	if err != nil {
 		return parsedLine{}, false
 	}
-	host, port := splitAddr(m[6])
+	host, port := splitAddr(m[7])
 	if host == "" || len(host) > 1024 {
 		return parsedLine{}, false
 	}
 	network := "tcp"
-	if m[4] != "" {
+	if m[5] != "" {
 		network = "udp"
 	}
 	ts := now
@@ -53,13 +56,19 @@ func parseLine(line string, now time.Time) (parsedLine, bool) {
 		}
 	}
 	ev := agentproto.ConnEvent{TS: ts.UTC(), NodeID: id, Network: network}
-	if m[5] == "from" {
+	if m[6] == "from" {
 		ev.SrcHost = host
 	} else {
 		ev.DestHost = host
 		ev.DestPort = port
 	}
-	return parsedLine{ev: ev, connID: m[1], dir: m[5]}, true
+	p := parsedLine{ev: ev, connID: m[1], dir: m[6]}
+	if user := m[4]; len(user) > 1 && user[0] == 'n' {
+		if owner, err := strconv.ParseInt(user[1:], 10, 64); err == nil && owner > 0 && owner != id {
+			p.owner = owner
+		}
+	}
+	return p, true
 }
 
 func splitAddr(s string) (host string, port int) {
@@ -78,6 +87,9 @@ func Parse(line string, now time.Time) (agentproto.ConnEvent, bool) {
 	if !ok || p.dir != "to" {
 		return agentproto.ConnEvent{}, false
 	}
+	if p.owner != 0 {
+		p.ev.NodeID = p.owner
+	}
 	return p.ev, true
 }
 
@@ -93,6 +105,9 @@ type Tailer struct {
 	Enabled        func() bool
 	// Only node ids present here are recorded (nil = all).
 	Allowed func(nodeID int64) bool
+	// Shared reports whether a listener carries any recorded credential, so
+	// its connection sources are kept until the user is known (nil = Allowed).
+	Shared func(nodeID int64) bool
 
 	head, count int
 	skipping    bool // discard an oversized line through its newline
@@ -221,7 +236,7 @@ func (t *Tailer) poll() {
 		} // retry a bounded partial line next poll
 		t.offset += int64(len(line))
 		p, ok := parseLine(strings.TrimRight(string(line), "\r\n"), now)
-		if !ok || (t.Allowed != nil && !t.Allowed(p.ev.NodeID)) {
+		if !ok || !t.wanted(p) {
 			continue
 		}
 		// Parsed substrings must not retain the entire original log line.
@@ -243,6 +258,24 @@ func (t *Tailer) maybeTruncate(size int64) {
 	}
 }
 
+// wanted decides before pairing: a destination line names its user, a source
+// line only its listener.
+func (t *Tailer) wanted(p parsedLine) bool {
+	if t.Allowed == nil {
+		return true
+	}
+	if p.dir == "to" {
+		if p.owner != 0 {
+			return t.Allowed(p.owner)
+		}
+		return t.Allowed(p.ev.NodeID)
+	}
+	if t.Shared != nil {
+		return t.Shared(p.ev.NodeID)
+	}
+	return t.Allowed(p.ev.NodeID)
+}
+
 func (t *Tailer) ingest(p parsedLine, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -256,7 +289,9 @@ func (t *Tailer) ingest(p parsedLine, now time.Time) {
 	if p.dir == "from" {
 		t.lastSrc[p.ev.NodeID] = fromHint{src: p.ev.SrcHost, at: now}
 		h := t.byID[key]
-		h.ev.NodeID = p.ev.NodeID
+		if !h.hasDest {
+			h.ev.NodeID = p.ev.NodeID // a waiting destination already names its owner
+		}
 		h.ev.Network = p.ev.Network
 		h.ev.TS = p.ev.TS
 		h.ev.SrcHost = p.ev.SrcHost
@@ -278,6 +313,9 @@ func (t *Tailer) ingest(p parsedLine, now time.Time) {
 	} else if hint, ok := t.lastSrc[p.ev.NodeID]; ok && now.Sub(hint.at) < 2*time.Minute {
 		// VLESS Reality: from uses the accept id, to uses a new id after auth.
 		src = hint.src
+	}
+	if p.owner != 0 {
+		p.ev.NodeID = p.owner
 	}
 	p.ev.SrcHost = src
 	if src != "" {

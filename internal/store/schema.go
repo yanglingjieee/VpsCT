@@ -670,24 +670,9 @@ ALTER TABLE sessions ADD COLUMN security_version INTEGER NOT NULL DEFAULT 0;`,
 	// v31: several users on one listener. A member node has no port of its own:
 	// it is one more credential on attach_node_id's inbound, metered by its own
 	// mark. Lines name the paths (entry, optional landing) a share may use.
-	`ALTER TABLE nodes ADD COLUMN attach_node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE;
- ALTER TABLE nodes ADD COLUMN uncounted INTEGER NOT NULL DEFAULT 0 CHECK(uncounted IN (0,1));
- CREATE INDEX idx_nodes_attach ON nodes(attach_node_id);
-ALTER TABLE node_meter_identities ADD COLUMN attach_node_id INTEGER;
-ALTER TABLE node_meter_identities ADD COLUMN uncounted INTEGER NOT NULL DEFAULT 0;
-DROP TRIGGER node_meter_insert;
-DROP TRIGGER node_meter_update;
-CREATE TRIGGER node_meter_insert AFTER INSERT ON nodes WHEN NEW.server_id IS NOT NULL BEGIN
- INSERT OR REPLACE INTO node_meter_identities VALUES(NEW.id,NEW.server_id,NEW.listen_port,NEW.core,NEW.share_id,NEW.attach_node_id,NEW.uncounted);
-END;
-CREATE TRIGGER node_meter_update AFTER UPDATE ON nodes WHEN NEW.server_id IS NOT NULL BEGIN
- INSERT OR REPLACE INTO node_meter_identities VALUES(NEW.id,NEW.server_id,NEW.listen_port,NEW.core,NEW.share_id,NEW.attach_node_id,NEW.uncounted);
-END;
- ALTER TABLE servers ADD COLUMN prefer_ipv6 INTEGER NOT NULL DEFAULT 0 CHECK(prefer_ipv6 IN (0,1));
- ALTER TABLE servers ADD COLUMN ingress_ack INTEGER NOT NULL DEFAULT 0 CHECK(ingress_ack IN (0,1));
- ALTER TABLE shares ADD COLUMN line_mode TEXT NOT NULL DEFAULT '' CHECK(line_mode IN ('','all','selected'));
- ALTER TABLE shares ADD COLUMN line_ids TEXT NOT NULL DEFAULT '[]';
- CREATE TABLE lines (
+	// v31: lines (what users are offered), per-user member credentials on
+	// shared listeners, rule sets and per-user delivery.
+	`CREATE TABLE lines (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
   entry_node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
@@ -696,5 +681,37 @@ END;
   enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
- );`,
+ );
+ ALTER TABLE nodes ADD COLUMN attach_node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE;
+ ALTER TABLE nodes ADD COLUMN line_id INTEGER REFERENCES lines(id) ON DELETE CASCADE;
+ ALTER TABLE nodes ADD COLUMN landing INTEGER NOT NULL DEFAULT 0 CHECK(landing IN (0,1));
+ CREATE INDEX idx_nodes_attach ON nodes(attach_node_id);
+ CREATE INDEX idx_nodes_line ON nodes(line_id);
+ ALTER TABLE node_meter_identities ADD COLUMN attach_node_id INTEGER;
+ DROP TRIGGER node_meter_insert;
+ DROP TRIGGER node_meter_update;
+ CREATE TRIGGER node_meter_insert AFTER INSERT ON nodes WHEN NEW.server_id IS NOT NULL BEGIN
+  INSERT OR REPLACE INTO node_meter_identities VALUES(NEW.id,NEW.server_id,NEW.listen_port,NEW.core,NEW.share_id,NEW.attach_node_id);
+ END;
+ CREATE TRIGGER node_meter_update AFTER UPDATE ON nodes WHEN NEW.server_id IS NOT NULL BEGIN
+  INSERT OR REPLACE INTO node_meter_identities VALUES(NEW.id,NEW.server_id,NEW.listen_port,NEW.core,NEW.share_id,NEW.attach_node_id);
+ END;
+ ALTER TABLE servers ADD COLUMN prefer_ipv6 INTEGER NOT NULL DEFAULT 0 CHECK(prefer_ipv6 IN (0,1));
+ ALTER TABLE servers ADD COLUMN ingress_ack INTEGER NOT NULL DEFAULT 0 CHECK(ingress_ack IN (0,1));
+ CREATE TABLE rulesets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  mihomo TEXT NOT NULL DEFAULT '',
+  shadowrocket TEXT NOT NULL DEFAULT '',
+  surge TEXT NOT NULL DEFAULT '',
+  singbox TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+ );
+ ALTER TABLE shares ADD COLUMN line_mode TEXT NOT NULL DEFAULT '' CHECK(line_mode IN ('','all','selected'));
+ ALTER TABLE shares ADD COLUMN line_ids TEXT NOT NULL DEFAULT '[]';
+ ALTER TABLE shares ADD COLUMN delivery TEXT NOT NULL DEFAULT 'profile' CHECK(delivery IN ('profile','nodes'));
+ ALTER TABLE shares ADD COLUMN ruleset_id INTEGER REFERENCES rulesets(id) ON DELETE SET NULL;`,
 }

@@ -276,7 +276,26 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 				return nil, err
 			}
 			memberOut := fmt.Sprintf("node-%d-direct", m.NodeID)
-			outbounds = append(outbounds, map[string]any{"type": "direct", "tag": memberOut, "routing_mark": memberMark})
+			if r := m.Relay; r != nil {
+				// The destination travels on as given, so names are resolved
+				// by the landing, with the landing's address preference.
+				memberOut = fmt.Sprintf("node-%d-relay", m.NodeID)
+				outbounds = append(outbounds, map[string]any{
+					"type": "vless", "tag": memberOut, "server": r.Server, "server_port": r.Port,
+					"uuid": r.UUID, "flow": firstNonEmpty(r.Flow, "xtls-rprx-vision"), "packet_encoding": "xudp",
+					"tls": map[string]any{
+						"enabled": true, "server_name": r.ServerName,
+						"utls":    map[string]any{"enabled": true, "fingerprint": "chrome"},
+						"reality": map[string]any{"enabled": true, "public_key": r.PublicKey, "short_id": r.ShortID},
+					},
+					"routing_mark": memberMark,
+				})
+			} else {
+				outbounds = append(outbounds, map[string]any{"type": "direct", "tag": memberOut, "routing_mark": memberMark})
+			}
+			if m.ConnlogEnabled {
+				logLevel = "info"
+			}
 			allow := map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "auth_user": []string{MemberUser(m.NodeID)}, "action": "route", "outbound": memberOut}
 			if len(m.AllowFrom) > 0 {
 				sources := []string{}

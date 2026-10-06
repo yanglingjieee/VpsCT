@@ -24,9 +24,11 @@ func TestValidateMembers(t *testing.T) {
 		"nested": func(d *DesiredState) {
 			d.Nodes = append(d.Nodes, NodeSpec{NodeID: 21, Protocol: "vless", Core: "singbox", AttachTo: 20, Params: map[string]any{"uuid": uuid}})
 		},
-		"no credential":  func(d *DesiredState) { d.Nodes[2].Params = map[string]any{} },
-		"duplicate id":   func(d *DesiredState) { d.Nodes[2].NodeID = 5 },
-		"other protocol": func(d *DesiredState) { d.Nodes[2].Protocol = "trojan" },
+		"no credential":     func(d *DesiredState) { d.Nodes[2].Params = map[string]any{} },
+		"duplicate id":      func(d *DesiredState) { d.Nodes[2].NodeID = 5 },
+		"other protocol":    func(d *DesiredState) { d.Nodes[2].Protocol = "trojan" },
+		"relay on listener": func(d *DesiredState) { d.Nodes[0].Relay = &RelaySpec{} },
+		"broken relay":      func(d *DesiredState) { d.Nodes[2].Relay = &RelaySpec{Server: "203.0.113.7", Port: 443, UUID: uuid} },
 	} {
 		if err := build(edit); err == nil {
 			t.Fatalf("%s: invalid member accepted", name)

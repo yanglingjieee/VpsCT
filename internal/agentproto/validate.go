@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -78,13 +79,18 @@ func ValidateDesired(d *DesiredState, serverID, lastRevision int64, lastHash str
 					return errors.New("成员节点的来源地址无效")
 				}
 			}
+			if r := n.Relay; r != nil {
+				if err := r.Validate(); err != nil {
+					return err
+				}
+			}
 			if err := ValidateParams(n.Params, 0); err != nil {
 				return err
 			}
 			ids[n.NodeID] = true
 			continue
 		}
-		if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort < 1 || n.ListenPort > 65535 || ports[n.ListenPort] || len(n.AllowFrom) > 0 {
+		if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort < 1 || n.ListenPort > 65535 || ports[n.ListenPort] || len(n.AllowFrom) > 0 || n.Relay != nil {
 			return errors.New("节点标识或端口无效")
 		}
 		ids[n.NodeID] = true
@@ -223,4 +229,25 @@ func ContentHash(d *DesiredState) string {
 	b, _ := json.Marshal(cp)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+var (
+	relayHost = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
+	relayKey  = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	relayHex  = regexp.MustCompile(`^([0-9a-f]{2}){0,8}$`)
+)
+
+// Validate accepts only a complete, well-formed landing: a relay member with
+// a broken target would silently drop its user's traffic.
+func (r RelaySpec) Validate() error {
+	if _, err := netip.ParseAddr(r.Server); err != nil && !relayHost.MatchString(r.Server) {
+		return errors.New("中转落地地址无效")
+	}
+	if r.Port < 1 || r.Port > 65535 || len(r.UUID) != 36 || !relayHost.MatchString(r.ServerName) || !relayKey.MatchString(r.PublicKey) || !relayHex.MatchString(r.ShortID) {
+		return errors.New("中转落地参数无效")
+	}
+	if r.Flow != "" && r.Flow != "xtls-rprx-vision" {
+		return errors.New("中转落地流控无效")
+	}
+	return nil
 }

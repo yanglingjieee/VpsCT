@@ -303,9 +303,9 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 			if err = add(store.SubjectNode, n.ID, rx, txBytes); err != nil {
 				return err
 			}
-			// The landing hop of a relay line repeats bytes already charged at
-			// its entry, so it is recorded per node but not against the quota.
-			if n.ShareID != nil && !n.Uncounted {
+			// A relay line is metered on both machines and both count: each
+			// server really carried the traffic.
+			if n.ShareID != nil {
 				p := shares[*n.ShareID]
 				if p == nil {
 					p = &ShareDelta{ShareID: *n.ShareID}

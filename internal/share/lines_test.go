@@ -67,21 +67,26 @@ func (f *lineFixture) members(t *testing.T, sh domain.Share) map[string]domain.N
 	if err != nil {
 		t.Fatal(err)
 	}
+	lines, _ := f.st.ListLines(context.Background())
 	names := map[int64]string{}
-	for name, n := range f.nodes {
-		names[n.ID] = name
+	for _, l := range lines {
+		names[l.ID] = l.Name
 	}
 	out := map[string]domain.Node{}
 	for _, n := range nodes {
-		if n.AttachNodeID == nil || n.ListenPort != 0 {
+		if n.AttachNodeID == nil || n.LineID == nil || n.ListenPort != 0 {
 			t.Fatalf("a line share owns only members: %+v", n)
 		}
-		out[names[*n.AttachNodeID]] = n
+		key := names[*n.LineID]
+		if n.Landing {
+			key += "/landing"
+		}
+		out[key] = n
 	}
 	return out
 }
 
-func (f *lineFixture) desired(t *testing.T, server string) *agentproto.DesiredState {
+func (f *lineFixture) desired(t *testing.T, server string) map[int64]agentproto.NodeSpec {
 	t.Helper()
 	rec, err := f.st.LatestDesiredState(context.Background(), f.servers[server].ID)
 	if err != nil {
@@ -94,16 +99,26 @@ func (f *lineFixture) desired(t *testing.T, server string) *agentproto.DesiredSt
 	if err := agentproto.ValidateDesired(ds, f.servers[server].ID, 0, ""); err != nil {
 		t.Fatalf("%s: agents would refuse this state: %v", server, err)
 	}
-	return ds
+	out := map[int64]agentproto.NodeSpec{}
+	for _, n := range ds.Nodes {
+		out[n.NodeID] = n
+	}
+	return out
+}
+
+func param(t *testing.T, raw []byte, key string) string {
+	t.Helper()
+	var p map[string]any
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := p[key].(string)
+	return v
 }
 
 func uuidOf(t *testing.T, n domain.Node) string {
 	t.Helper()
-	var p map[string]any
-	if err := json.Unmarshal(n.ServerParams, &p); err != nil {
-		t.Fatal(err)
-	}
-	id, _ := p["uuid"].(string)
+	id := param(t, n.ServerParams, "uuid")
 	if len(id) != 36 {
 		t.Fatalf("no credential: %s", n.ServerParams)
 	}
@@ -121,92 +136,86 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 		}
 	}
 	ym, sm := f.members(t, *yang), f.members(t, *sansan)
-	if len(ym) != 3 || len(sm) != 2 {
-		t.Fatalf("members: yang %d sansan %d", len(ym), len(sm))
+	if len(ym) != 5 || len(sm) != 3 {
+		t.Fatalf("one credential per line and machine: yang %d sansan %d", len(ym), len(sm))
 	}
-	if !ym["att"].Uncounted || ym["vmiss"].Uncounted || ym["hk"].Uncounted {
-		t.Fatal("only the landing hop is free of charge")
-	}
-	seen := map[string]bool{uuidOf(t, domain.Node{ServerParams: f.nodes["vmiss"].ServerParams}): true}
-	for _, n := range []domain.Node{ym["vmiss"], ym["hk"], ym["att"], sm["vmiss"], sm["att"]} {
-		id := uuidOf(t, n)
-		if seen[id] {
-			t.Fatal("two users share a credential")
+	seen := map[string]bool{uuidOf(t, f.nodes["vmiss"]): true, uuidOf(t, f.nodes["att"]): true}
+	for _, set := range []map[string]domain.Node{ym, sm} {
+		for name, n := range set {
+			id := uuidOf(t, n)
+			if seen[id] {
+				t.Fatalf("%s shares a credential", name)
+			}
+			seen[id] = true
 		}
-		seen[id] = true
 	}
 
-	// Agents: one listener, one extra user per share, nothing else opened.
-	ds := f.desired(t, "vmiss")
-	if len(ds.Nodes) != 3 {
-		t.Fatalf("vmiss: %+v", ds.Nodes)
+	// The entry server relays: the user's credential there carries their own
+	// credential on the landing. Nothing else is opened.
+	vmiss, att := f.desired(t, "vmiss"), f.desired(t, "att")
+	if len(vmiss) != 5 || len(att) != 4 {
+		t.Fatalf("vmiss %d att %d", len(vmiss), len(att))
 	}
-	for _, n := range ds.Nodes {
-		if n.NodeID == f.nodes["vmiss"].ID {
-			if n.AttachTo != 0 || n.ListenPort != 443 {
-				t.Fatalf("listener changed: %+v", n)
-			}
-			continue
-		}
-		if n.AttachTo != f.nodes["vmiss"].ID || n.ListenPort != 0 || n.Blocked || len(n.AllowFrom) != 0 {
-			t.Fatalf("entry member: %+v", n)
-		}
+	relay := vmiss[ym["ATT via VMISS"].ID]
+	if relay.AttachTo != f.nodes["vmiss"].ID || relay.ListenPort != 0 || relay.Blocked || relay.Relay == nil {
+		t.Fatalf("relay member: %+v", relay)
 	}
-	sources := func() map[int64][]string {
-		out := map[int64][]string{}
-		for _, n := range f.desired(t, "att").Nodes {
-			if n.AttachTo != 0 {
-				out[n.NodeID] = n.AllowFrom
-			}
-		}
-		return out
+	if r := relay.Relay; r.Server != "99.0.0.1" || r.Port != 26903 || r.UUID != uuidOf(t, ym["ATT via VMISS/landing"]) ||
+		r.PublicKey != param(t, f.nodes["att"].ServerParams, "reality_public_key") || r.ServerName != param(t, f.nodes["att"].ServerParams, "handshake_server") {
+		t.Fatalf("relay target: %+v", r)
 	}
-	got := sources()
-	if strings.Join(got[ym["att"].ID], ",") != "1.2.3.4,8.0.0.1" || strings.Join(got[sm["att"].ID], ",") != "1.2.3.4" {
-		t.Fatalf("a landing credential is valid only from that user's entries: %v", got)
+	if d := vmiss[ym["VMISS"].ID]; d.Relay != nil || d.AttachTo != f.nodes["vmiss"].ID || len(d.AllowFrom) != 0 {
+		t.Fatalf("direct member: %+v", d)
+	}
+	if got := att[ym["ATT via VMISS/landing"].ID].AllowFrom; len(got) != 1 || got[0] != "1.2.3.4" {
+		t.Fatalf("a landing credential is valid only from its line's entry: %v", got)
+	}
+	if got := att[ym["ATT via HK/landing"].ID].AllowFrom; len(got) != 1 || got[0] != "8.0.0.1" {
+		t.Fatalf("landing source: %v", got)
 	}
 
-	// Subscription: lines by name and order, each with the user's own secret.
+	// Subscription: every line is one ordinary proxy on its entry. The
+	// landing's address and credentials never reach a client.
 	svc := subscription.NewService(f.st)
-	render := func(sh *domain.Share) (string, *subscription.Bundle) {
+	render := func(sh *domain.Share, format string) (string, *subscription.Bundle) {
 		sub, err := f.st.GetSubscriptionByShare(ctx, sh.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		r, b, err := svc.Render(ctx, sub, subscription.FormatMihomo)
+		r, b, err := svc.Render(ctx, sub, format)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return string(r.Body), b
 	}
-	body, b := render(yang)
-	if strings.Join(b.AllProxyNames(), "|") != "ATT via VMISS|VMISS|ATT via HK" {
-		t.Fatalf("menu order: %v", b.AllProxyNames())
+	body, b := render(yang, subscription.FormatMihomo)
+	if strings.Join(b.AllProxyNames(), "|") != "ATT via VMISS|VMISS|ATT via HK" || len(b.Chains) != 0 {
+		t.Fatalf("menu order: %v, chains %d", b.AllProxyNames(), len(b.Chains))
 	}
-	if len(b.Proxies) != 2 || len(b.Chains) != 2 || b.Chains[0].Via != "VMISS" || b.Chains[1].Via != "hk" {
-		t.Fatalf("bundle: %d proxies, chains %+v", len(b.Proxies), b.Chains)
-	}
-	for _, want := range []string{uuidOf(t, ym["vmiss"]), uuidOf(t, ym["hk"]), uuidOf(t, ym["att"]), "dialer-proxy: VMISS", "server: 99.0.0.1", "port: 26903"} {
+	for _, want := range []string{uuidOf(t, ym["ATT via VMISS"]), uuidOf(t, ym["VMISS"]), uuidOf(t, ym["ATT via HK"]), "server: 1.2.3.4", "server: 8.0.0.1"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q", want)
 		}
 	}
-	for _, leak := range []string{uuidOf(t, sm["vmiss"]), uuidOf(t, sm["att"]), uuidOf(t, f.nodes["vmiss"]), uuidOf(t, f.nodes["att"])} {
+	for _, leak := range []string{"99.0.0.1", "26903", uuidOf(t, ym["ATT via VMISS/landing"]), uuidOf(t, sm["VMISS"]), uuidOf(t, f.nodes["vmiss"]), "dialer-proxy"} {
 		if strings.Contains(body, leak) {
-			t.Fatal("someone else's credential leaked into the subscription")
+			t.Fatalf("%q must not be in a client profile", leak)
 		}
 	}
-	if _, sb := render(sansan); strings.Join(sb.AllProxyNames(), "|") != "ATT via VMISS|VMISS" {
+	if _, sb := render(sansan, subscription.FormatMihomo); strings.Join(sb.AllProxyNames(), "|") != "ATT via VMISS|VMISS" {
 		t.Fatalf("sansan sees only her lines: %v", sb.AllProxyNames())
 	}
+	if uris, _ := render(yang, subscription.FormatURIList); strings.Count(uris, "vless://") != 3 {
+		t.Fatalf("every line, relays included, is a plain node link:\n%s", uris)
+	}
 
-	// Metering: charged at the entry, from the user's point of view; the
-	// landing hop is recorded but free.
+	// Metering: per user on both machines of a relay, from the user's point
+	// of view, and both count.
 	ing := traffic.New(f.st)
 	ing.Now = func() time.Time { return *f.now }
 	beat := func(server string, epoch string, counters ...agentproto.PortCounter) traffic.Result {
 		for i := range counters {
-			counters[i].Source, counters[i].Epoch = "nft-node-v1", epoch
+			counters[i].Source, counters[i].Epoch, counters[i].FromZero = "nft-node-v1", epoch, true
 		}
 		*f.now = f.now.Add(time.Second)
 		res, err := ing.Ingest(ctx, f.servers[server], agentproto.Heartbeat{Epoch: epoch, TS: *f.now, Ports: counters})
@@ -215,53 +224,60 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 		}
 		return res
 	}
-	beat("vmiss", "v", agentproto.PortCounter{NodeID: ym["vmiss"].ID, Rx: 0, Tx: 0, FromZero: true}, agentproto.PortCounter{NodeID: sm["vmiss"].ID, FromZero: true})
-	res := beat("vmiss", "v", agentproto.PortCounter{NodeID: ym["vmiss"].ID, Rx: 700, Tx: 40, FromZero: true}, agentproto.PortCounter{NodeID: sm["vmiss"].ID, Rx: 5, Tx: 1, FromZero: true})
-	byShare := map[int64]traffic.ShareDelta{}
-	for _, d := range res.Shares {
-		byShare[d.ShareID] = d
+	usage := func(res traffic.Result, sh *domain.Share) (up, down int64) {
+		for _, d := range res.Shares {
+			if d.ShareID == sh.ID {
+				return d.Up, d.Down
+			}
+		}
+		return 0, 0
 	}
-	if d := byShare[yang.ID]; d.Up != 40 || d.Down != 700 {
-		t.Fatalf("bytes received from the destination are the user's download: %+v", d)
+	yr, sr, yl := ym["ATT via VMISS"].ID, sm["VMISS"].ID, ym["ATT via VMISS/landing"].ID
+	beat("vmiss", "v", agentproto.PortCounter{NodeID: yr}, agentproto.PortCounter{NodeID: sr})
+	res := beat("vmiss", "v", agentproto.PortCounter{NodeID: yr, Rx: 300, Tx: 20}, agentproto.PortCounter{NodeID: sr, Rx: 5, Tx: 1})
+	if up, down := usage(res, yang); up != 20 || down != 300 {
+		t.Fatalf("bytes received from the far side are the user's download: %d %d", up, down)
 	}
-	if d := byShare[sansan.ID]; d.Up != 1 || d.Down != 5 {
-		t.Fatalf("sansan: %+v", d)
+	if up, down := usage(res, sansan); up != 1 || down != 5 {
+		t.Fatalf("sansan: %d %d", up, down)
 	}
-	beat("att", "a", agentproto.PortCounter{NodeID: ym["att"].ID, FromZero: true})
-	if res = beat("att", "a", agentproto.PortCounter{NodeID: ym["att"].ID, Rx: 9000, Tx: 9000, FromZero: true}); len(res.Shares) != 0 {
-		t.Fatalf("relay traffic charged twice: %+v", res.Shares)
+	beat("att", "a", agentproto.PortCounter{NodeID: yl})
+	res = beat("att", "a", agentproto.PortCounter{NodeID: yl, Rx: 290, Tx: 18})
+	if up, down := usage(res, yang); up != 18 || down != 290 {
+		t.Fatalf("the landing machine carried the traffic too: %d %d", up, down)
 	}
-	if up, down, _ := f.st.SumTraffic(ctx, store.SubjectNode, ym["att"].ID, f.now.AddDate(0, 0, -1), f.now.Add(time.Hour)); up+down != 18000 {
-		t.Fatalf("landing usage must still be visible per node: %d %d", up, down)
+	for id, want := range map[int64]int64{yr: 320, yl: 308} {
+		if up, down, _ := f.st.SumTraffic(ctx, store.SubjectNode, id, f.now.AddDate(0, 0, -1), f.now.Add(time.Hour)); up+down != want {
+			t.Fatalf("per-machine usage of node %d: %d", id, up+down)
+		}
+	}
+	if got, _ := f.st.GetShare(ctx, yang.ID); got.UsedUpload+got.UsedDownload != 628 || got.Status != domain.ShareActive {
+		t.Fatalf("yang: %+v", got)
 	}
 
-	// Quota: only the user who ran out is cut off, everywhere.
-	if err := f.m.EvaluateDeltas(ctx, []traffic.ShareDelta{{ShareID: yang.ID}}); err != nil {
-		t.Fatal(err)
-	}
-	beat("vmiss", "v", agentproto.PortCounter{NodeID: ym["vmiss"].ID, Rx: 2000, Tx: 40, FromZero: true}, agentproto.PortCounter{NodeID: sm["vmiss"].ID, Rx: 5, Tx: 1, FromZero: true})
-	if err := f.m.EvaluateDeltas(ctx, []traffic.ShareDelta{{ShareID: yang.ID}}); err != nil {
+	// Quota: only the user who ran out is cut off, on every machine.
+	res = beat("vmiss", "v", agentproto.PortCounter{NodeID: yr, Rx: 900, Tx: 20}, agentproto.PortCounter{NodeID: sr, Rx: 5, Tx: 1})
+	if err := f.m.EvaluateDeltas(ctx, res.Shares); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := f.st.GetShare(ctx, yang.ID); got.Status != domain.ShareExhausted {
 		t.Fatalf("yang used %d of %d: %s", got.UsedUpload+got.UsedDownload, got.QuotaBytes, got.Status)
 	}
 	for _, server := range []string{"vmiss", "hk", "att"} {
-		for _, n := range f.desired(t, server).Nodes {
-			mine := n.ShareID != nil && *n.ShareID == yang.ID
-			if n.Blocked != mine {
+		for _, n := range f.desired(t, server) {
+			if mine := n.ShareID != nil && *n.ShareID == yang.ID; n.Blocked != mine {
 				t.Fatalf("%s node %d blocked=%v", server, n.NodeID, n.Blocked)
 			}
 		}
 	}
-	if body, b = render(yang); len(b.Proxies)+len(b.Chains) != 0 || !strings.Contains(body, "REJECT") {
-		t.Fatalf("an exhausted subscription must stop, not fall back to direct connections:\n%s", body[:min(len(body), 3000)])
+	if body, b = render(yang, subscription.FormatMihomo); len(b.Proxies) != 0 || !strings.Contains(body, "REJECT") {
+		t.Fatalf("an exhausted profile must stop, not fall back to direct connections:\n%s", body[:min(len(body), 2000)])
 	}
-	if strings.Contains(body, "proxies: [DIRECT]") || strings.Contains(body, "- DIRECT\n  - name") {
-		t.Fatalf("a group was emptied into DIRECT:\n%s", body[:min(len(body), 3000)])
+	if err := f.m.ResetUsage(ctx, yang.ID); err != nil {
+		t.Fatal(err)
 	}
 
-	// Lines changing: credentials follow, and so do the allowed sources.
+	// Lines changing: credentials follow on both machines.
 	f.relay.Enabled = false
 	if err := f.st.UpdateLine(ctx, &f.relay); err != nil {
 		t.Fatal(err)
@@ -269,13 +285,10 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 	if err := f.m.SyncLines(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got = sources(); strings.Join(got[ym["att"].ID], ",") != "8.0.0.1" {
-		t.Fatalf("sources after a line was disabled: %v", got)
+	if len(f.members(t, *sansan)) != 1 || len(f.desired(t, "att")) != 2 || len(f.desired(t, "vmiss")) != 3 {
+		t.Fatalf("a disabled relay leaves nothing behind: %d members", len(f.members(t, *sansan)))
 	}
-	if _, ok := got[sm["att"].ID]; ok || len(f.members(t, *sansan)) != 1 {
-		t.Fatal("sansan's landing credential must be revoked with her only relay line")
-	}
-	old := uuidOf(t, sm["att"])
+	old := uuidOf(t, sm["ATT via VMISS"])
 	f.relay.Enabled = true
 	if err := f.st.UpdateLine(ctx, &f.relay); err != nil {
 		t.Fatal(err)
@@ -283,14 +296,30 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 	if err := f.m.SyncLines(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if again := f.members(t, *sansan)["att"]; again.ID != sm["att"].ID || uuidOf(t, again) == old {
+	if again := f.members(t, *sansan)["ATT via VMISS"]; again.ID != sm["ATT via VMISS"].ID || uuidOf(t, again) == old {
 		t.Fatal("a returning credential keeps its identity but not its old secret")
 	}
 
-	// Rotating the listener's handshake reaches every member without
-	// touching anyone's secret.
-	parent := f.nodes["vmiss"]
-	if err := provision.RegenerateCredentials(&parent, f.servers["vmiss"]); err != nil {
+	// Moving a line to another entry moves the credential.
+	f.relay.EntryNodeID = f.nodes["hk"].ID
+	if err := f.st.UpdateLine(ctx, &f.relay); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.SyncLines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	moved := f.members(t, *sansan)["ATT via VMISS"]
+	if *moved.AttachNodeID != f.nodes["hk"].ID || f.desired(t, "hk")[moved.ID].Relay == nil || len(f.desired(t, "vmiss")) != 3 {
+		t.Fatalf("line moved to hk: %+v", moved)
+	}
+	if got := f.desired(t, "att")[f.members(t, *sansan)["ATT via VMISS/landing"].ID].AllowFrom; len(got) != 1 || got[0] != "8.0.0.1" {
+		t.Fatalf("the landing follows its new entry: %v", got)
+	}
+
+	// Rotating a landing's handshake reaches the entry servers that relay
+	// to it, without touching anyone's secret.
+	parent := f.nodes["att"]
+	if err := provision.RegenerateCredentials(&parent, f.servers["att"]); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.st.UpdateNode(ctx, &parent); err != nil {
@@ -299,22 +328,20 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 	if err := f.m.SyncLines(ctx); err != nil {
 		t.Fatal(err)
 	}
-	after := f.members(t, *sansan)["vmiss"]
-	var mp, pp map[string]any
-	_ = json.Unmarshal(after.Params, &mp)
-	_ = json.Unmarshal(parent.Params, &pp)
-	if uuidOf(t, after) != uuidOf(t, sm["vmiss"]) || mp["reality-opts"].(map[string]any)["public-key"] != pp["reality-opts"].(map[string]any)["public-key"] {
-		t.Fatal("member did not follow its listener")
+	now := f.members(t, *yang)
+	if r := f.desired(t, "hk")[now["ATT via HK"].ID].Relay; r == nil || r.PublicKey != param(t, parent.ServerParams, "reality_public_key") || r.UUID != uuidOf(t, ym["ATT via HK/landing"]) {
+		t.Fatalf("entry did not follow its landing: %+v", r)
 	}
 
-	// Removing the listener removes its lines and credentials.
+	// Removing the landing listener removes its lines and every credential
+	// of them, on both machines.
 	if err := f.st.DeleteNode(ctx, f.nodes["att"].ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.m.SyncLines(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if lines, _ := f.st.ListLines(ctx); len(lines) != 1 || len(f.members(t, *sansan)) != 1 {
+	if lines, _ := f.st.ListLines(ctx); len(lines) != 1 || len(f.members(t, *sansan)) != 1 || len(f.desired(t, "hk")) != 1 {
 		t.Fatalf("lines %d members %d", len(lines), len(f.members(t, *sansan)))
 	}
 }

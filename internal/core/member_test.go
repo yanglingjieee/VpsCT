@@ -10,6 +10,11 @@ import (
 	"ctlvps/internal/domain"
 )
 
+const (
+	relayUUID = "44444444-4444-4444-8444-444444444444"
+	relayKey  = "Zm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyZm8"
+)
+
 func memberSpec(id, parent int64, uuid string) agentproto.NodeSpec {
 	return agentproto.NodeSpec{NodeID: id, Protocol: "vless", Core: "singbox", AttachTo: parent,
 		Params: map[string]any{"uuid": uuid, "flow": "xtls-rprx-vision"}}
@@ -23,9 +28,13 @@ func TestMembersShareOneInbound(t *testing.T) {
 	other := specFor(t, srv, 6, "vless", 8443, false)
 	blocked := memberSpec(22, 5, "33333333-3333-4333-8333-333333333333")
 	blocked.Blocked = true
+	relayed := memberSpec(20, 5, "11111111-1111-4111-8111-111111111111")
+	relayed.Relay = &agentproto.RelaySpec{Server: "203.0.113.77", Port: 26903, UUID: relayUUID, ServerName: "www.example.com", PublicKey: relayKey, ShortID: "0123abcd"}
+	if err := relayed.Relay.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	nodes := []agentproto.NodeSpec{
-		memberSpec(21, 5, "22222222-2222-4222-8222-222222222222"), blocked, parent, other,
-		memberSpec(20, 5, "11111111-1111-4111-8111-111111111111"),
+		memberSpec(21, 5, "22222222-2222-4222-8222-222222222222"), blocked, parent, other, relayed,
 	}
 	d := NewSingBox(Paths{BinDir: dir, ConfDir: dir, LogDir: dir, CertDir: filepath.Join(dir, "certs"), DataDir: dir}, NewSystemd())
 	cfg, err := d.BuildResourceConfig(ds, nodes, nil)
@@ -49,8 +58,24 @@ func TestMembersShareOneInbound(t *testing.T) {
 		m := o.(map[string]any)
 		tags[m["tag"].(string)] = m["routing_mark"]
 	}
-	if len(tags) != 4 || tags["node-20-direct"] == tags["node-21-direct"] || tags["node-20-direct"] == tags["node-5-direct"] {
+	if len(tags) != 4 || tags["node-20-relay"] == tags["node-21-direct"] || tags["node-20-relay"] == tags["node-5-direct"] || tags["node-20-relay"] == nil {
 		t.Fatalf("every credential needs its own accounting mark: %v", tags)
+	}
+	for _, o := range cfg["outbounds"].([]any) {
+		m := o.(map[string]any)
+		if m["tag"] != "node-20-relay" {
+			continue
+		}
+		reality := m["tls"].(map[string]any)["reality"].(map[string]any)
+		if m["type"] != "vless" || m["server"] != "203.0.113.77" || m["server_port"] != 26903 || m["uuid"] != relayUUID || reality["public_key"] != relayKey {
+			t.Fatalf("a relay member leaves through its landing with the user's credential there: %v", m)
+		}
+	}
+	for _, r := range cfg["route"].(map[string]any)["rules"].([]any) {
+		m := r.(map[string]any)
+		if u, ok := m["auth_user"].([]string); ok && u[0] == "n20" && m["outbound"] != "node-20-relay" {
+			t.Fatalf("relay member routed elsewhere: %v", m)
+		}
 	}
 	if _, ok := tags["node-22-direct"]; ok {
 		t.Fatal("blocked member kept an outbound")

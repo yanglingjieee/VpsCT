@@ -181,9 +181,11 @@ type Node struct {
 	// AttachNodeID makes this a member node: one more credential on that
 	// node's listener, with its own accounting identity and no port.
 	AttachNodeID *int64 `json:"attach_node_id,omitempty"`
-	// Uncounted member traffic is metered but not charged to the share: a
-	// landing hop repeats what the entry hop already counted.
-	Uncounted   bool      `json:"uncounted,omitempty"`
+	// LineID is the line a member credential serves.
+	LineID *int64 `json:"line_id,omitempty"`
+	// Landing marks the far end of a relay line: the entry server connects
+	// with it, clients never see it.
+	Landing     bool      `json:"landing,omitempty"`
 	Enabled     bool      `json:"enabled"`
 	OwnerUserID int64     `json:"owner_user_id"`
 	Tags        []string  `json:"tags"`
@@ -212,6 +214,45 @@ const (
 	ShareLinesAll      = "all"      // every enabled line, including later ones
 	ShareLinesSelected = "selected" // only LineIDs
 )
+
+// Share delivery modes.
+const (
+	DeliveryProfile = "profile"
+	DeliveryNodes   = "nodes"
+)
+
+// Ruleset is one set of routing rules written once per client family, so a
+// single user link works in every client.
+type Ruleset struct {
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	Mihomo       string    `json:"mihomo"`
+	Shadowrocket string    `json:"shadowrocket"`
+	Surge        string    `json:"surge"`
+	SingBox      string    `json:"singbox"`
+	SortOrder    int       `json:"sort_order"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// Content returns the rules for a template kind ("" when not written).
+func (r Ruleset) Content(kind string) string {
+	switch kind {
+	case "mihomo":
+		return r.Mihomo
+	case "shadowrocket":
+		return r.Shadowrocket
+	case "surge":
+		return r.Surge
+	case "singbox":
+		return r.SingBox
+	}
+	return ""
+}
+
+// SettingDefaultRuleset is the rule set given to new users (0 = no rules).
+const SettingDefaultRuleset = "rules.default_id"
 
 // ExternalSubscription is an "airport" subscription URL that we pull nodes
 // and subscription-userinfo from.
@@ -376,27 +417,33 @@ type ShareTarget struct {
 // Share is a customer allotment: dedicated inbounds on chosen servers plus
 // a metered quota and a subscription.
 type Share struct {
-	ID             int64         `json:"id"`
-	Name           string        `json:"name"`
-	UserID         *int64        `json:"user_id,omitempty"`
-	Targets        []ShareTarget `json:"targets"`
-	ExtraNodeIDs   []int64       `json:"extra_node_ids"` // imported nodes mixed in (soft limit only)
-	LineMode       string        `json:"line_mode"`      // "", "all" or "selected"; see ShareLines*
-	LineIDs        []int64       `json:"line_ids"`
-	QuotaBytes     int64         `json:"quota_bytes"`  // 0 = unlimited
-	BillingMode    string        `json:"billing_mode"` // kept for compat; quota always uses inbound+outbound
-	ResetDay       int           `json:"reset_day"`    // 1..28, or 31 = last day; 0 = never
-	ExpiresAt      *time.Time    `json:"expires_at,omitempty"`
-	Status         ShareStatus   `json:"status"`
-	TemplateID     *int64        `json:"template_id,omitempty"`
-	ConnlogEnabled bool          `json:"connlog_enabled"`
-	Notes          string        `json:"notes"`
-	SubscriptionID *int64        `json:"subscription_id,omitempty"`
-	PeriodStart    time.Time     `json:"period_start"`
-	UsedUpload     int64         `json:"used_upload"`
-	UsedDownload   int64         `json:"used_download"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
+	ID           int64         `json:"id"`
+	Name         string        `json:"name"`
+	UserID       *int64        `json:"user_id,omitempty"`
+	Targets      []ShareTarget `json:"targets"`
+	ExtraNodeIDs []int64       `json:"extra_node_ids"` // imported nodes mixed in (soft limit only)
+	LineMode     string        `json:"line_mode"`      // "", "all" or "selected"; see ShareLines*
+	LineIDs      []int64       `json:"line_ids"`
+	// Delivery is how the user receives their lines: a one-tap profile
+	// (lines + rules for every client) or just the nodes themselves.
+	Delivery string `json:"delivery"`
+	// RulesetID selects the rules of a profile; nil is the built-in
+	// "no rules" (everything through the chosen line).
+	RulesetID      *int64      `json:"ruleset_id,omitempty"`
+	QuotaBytes     int64       `json:"quota_bytes"`  // 0 = unlimited
+	BillingMode    string      `json:"billing_mode"` // kept for compat; quota always uses inbound+outbound
+	ResetDay       int         `json:"reset_day"`    // 1..28, or 31 = last day; 0 = never
+	ExpiresAt      *time.Time  `json:"expires_at,omitempty"`
+	Status         ShareStatus `json:"status"`
+	TemplateID     *int64      `json:"template_id,omitempty"`
+	ConnlogEnabled bool        `json:"connlog_enabled"`
+	Notes          string      `json:"notes"`
+	SubscriptionID *int64      `json:"subscription_id,omitempty"`
+	PeriodStart    time.Time   `json:"period_start"`
+	UsedUpload     int64       `json:"used_upload"`
+	UsedDownload   int64       `json:"used_download"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
 const (

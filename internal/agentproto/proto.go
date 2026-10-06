@@ -232,11 +232,26 @@ type NodeSpec struct {
 	AttachTo int64 `json:"attach_to,omitempty"`
 	// AllowFrom, when set, limits a member to clients connecting from these
 	// addresses: a landing credential is only valid from its entry servers.
-	AllowFrom      []string       `json:"allow_from,omitempty"`
+	AllowFrom []string `json:"allow_from,omitempty"`
+	// Relay, when set, sends this member's traffic on to a landing server
+	// instead of straight out: the relay hop of a relay line.
+	Relay          *RelaySpec     `json:"relay,omitempty"`
 	Blocked        bool           `json:"blocked"`
 	ConnlogEnabled bool           `json:"connlog_enabled"`
 	Params         map[string]any `json:"params"` // server-side protocol params
 	Cert           *CertSpec      `json:"cert,omitempty"`
+}
+
+// RelaySpec is the landing a relay member forwards to: a VLESS Reality
+// listener on another server and this user's credential there.
+type RelaySpec struct {
+	Server     string `json:"server"`
+	Port       int    `json:"port"`
+	UUID       string `json:"uuid"`
+	Flow       string `json:"flow,omitempty"`
+	ServerName string `json:"server_name"`
+	PublicKey  string `json:"public_key"`
+	ShortID    string `json:"short_id"`
 }
 
 // CoreVersion pins a downloadable core binary.

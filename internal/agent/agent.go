@@ -111,9 +111,23 @@ func New(stateDir string, st *State, logger *slog.Logger, version string) *Agent
 		}
 		return false
 	}
+	a.Tail.Shared = func(nodeID int64) bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.desired == nil {
+			return false
+		}
+		for _, n := range a.desired.Nodes {
+			if (n.NodeID == nodeID || n.AttachTo == nodeID) && n.ConnlogEnabled {
+				return true
+			}
+		}
+		return false
+	}
 	a.PrivateTail = conntail.New(filepath.Join(paths.LogDir, "sing-box-private.log"))
 	a.PrivateTail.Enabled = a.Tail.Enabled
 	a.PrivateTail.Allowed = a.Tail.Allowed
+	a.PrivateTail.Shared = a.Tail.Shared
 	queue := conntail.NewSharedQueue()
 	a.Tail.Queue = queue
 	a.PrivateTail.Queue = queue
