@@ -1,53 +1,63 @@
-# VpsCT
+# 土豆饼的家（VpsCT fork）
 
-给人看的面板和 GitHub 仓库均叫 **VpsCT**。本地工作目录、二进制、数据目录、systemd 沿用 **ctlvps** 命名：控制端 `ctlvpsd`，VPS 上 `ctlvps-agent`。
+这是 [VpsCT](https://github.com/YongshengWin/VpsCT) 的自用分支：一个**机场 + 探针**面板。本地工作目录、二进制、数据目录、systemd 沿用上游的 **ctlvps** 命名：控制端 `ctlvpsd`，VPS 上 `ctlvps-agent`。回复用**简体中文**。
 
-一句话：一台控制端管很多台 VPS。在面板里加服务器、部署节点、做订阅和分享。回复用**简体中文**。
+一句话：一台控制端管几台 VPS，既看它们的状态和流量，也在上面建入站和线路，分给不同的用户用。
 
-## 1. 两块怎么装
+## 1. 产品模型
 
-**控制端支持 Release 安装器。** 根目录 `install.sh` 安装预编译控制端、双架构 agent 分发文件和 systemd，可选 Caddy HTTPS；`--update` 停服备份后升级。源码构建用 `make build`，发行附件用 `make release VERSION=vX.Y.Z REPOSITORY=OWNER/VpsCT`，其中 OWNER 是实际 GitHub 用户或组织。也可 `cd deploy && docker compose up -d --build`。第一次创建管理员必须使用数据目录的 `setup-token`，不能重新开放无令牌初始化。
+界面只有六页：总览、服务器、节点、用户、规则、连接日志。新功能要落在这个模型里，不要把已经移除的页面（订阅编辑器、模板与预设、分享、面板多账号、出口、固定转发、托管中转、网卡计费）加回来。
 
-**被控 VPS 使用独立的一键脚本。** 面板「服务器 → 添加 → 生成安装命令」，在那台机器上 root 执行。脚本会 enroll、装 systemd。agent **只出不进**，VPS 不用开管理端口。节点不是再装一次，是面板里点部署，agent 自己收敛 sing-box / snell。
+| 概念 | 含义 | 代码里的名字 |
+|---|---|---|
+| 入站 | 某台服务器上监听的一个端口（VLESS + Reality） | `domain.Node`，`source=deployed`，没有 `attach_node_id` |
+| 线路 | 用户在客户端里看到的一个节点：直连一个入站，或入口入站中转到落地入站 | `domain.Line` |
+| 用户 | 一个使用者：线路范围、规则、限额、专属链接 | `domain.Share` 加它关联的 `Subscription` |
+| 用户凭据 | 用户在某条线路的某台机器上的凭据，各自计量 | `domain.Node`，有 `attach_node_id`、`line_id`；落地一侧 `landing=true` |
+| 规则 | 一套规则给每种客户端各写一份 | `domain.Ruleset`；没有规则时用 `subscription.NoRules` |
 
-细节见 `README.md`、`docs/operations.md` 和 `docs/releasing.md`。
+几条必须保持的性质：
 
-**卸载使用独立 `uninstall.sh`。** `--controller` / `--agent` / `--all` 三选一，默认保留数据；`--purge` 才删除数据。先用 `--dry-run` 看范围。`--remove-caddy` 需要控制端加 `--purge`，只接受安装器生成的独占配置。两端共用父目录，不可直接删整个 `/opt/ctlvps` 或 `/etc/ctlvps`。2026-09-15 更新的 v0.1.0 附件包含卸载器和网页维护；早期安装需先终端更新一次以启用网页维护。
+- **一个入站多个用户**：凭据是入站 `users` 里的一项，按 `auth_user` 路由到带各自 `routing_mark` 的出站，nftables 按 mark 计量和封禁。凭据不占端口。
+- **中转在入口机上完成**：中转线路的入口凭据带一个 `Relay`，入口机用该用户在落地机上的凭据转发过去。客户端拿到的每条线路都是入口机上的一条普通节点，落地机的地址和凭据不进任何用户配置。
+- **两台机器都计量、都算给用户**。不要再引入“只算一次”的特例。
+- **停用只影响本人**：用户不在正常状态时，他的凭据从入站用户列表里去掉、对应 mark 丢弃。
+- **不回退直连**：分组里没有线路时填 `REJECT`（`subscription.EmptyGroupPolicy`）。
+- 用户的专属链接是 `/r/<24 位>`：浏览器打开返回前端的个人页（`web/src/pages/public.tsx`，数据来自同一地址加 `?page=1`），客户端打开返回配置。
 
 ## 2. 代码在哪
-
-网页维护由 `internal/maintenance` 的固定 Unix socket 服务和独立 systemd worker 执行。控制端仍不以 root 运行。维护任务要持久化、幂等、二次认证、按端隔离；不要让网页传入任意命令、路径或下载仓库。升级/卸载验证使用 `scripts/test-maintenance-container.sh` 的隔离环境，不直接操作真实 VPS。
 
 | 路径 | 干什么 |
 |---|---|
 | `cmd/ctlvpsd` | 控制端：API + 内嵌前端 |
 | `cmd/ctlvps-agent` | VPS 端 |
 | `web/` | React 面板，build 进 `web/dist`，再打进 `ctlvpsd` |
-| `internal/api` | REST / SSE / 公开订阅 `/s` `/r` |
-| `internal/subscription` | 模板、预设、各客户端格式 |
-| `internal/core` | 内核安装与配置 |
-| `deploy/` | systemd、compose |
+| `internal/api` | REST / SSE / 公开链接 `/s` `/r`；`lines.go`、`rulesets.go`、`people.go` 是本分支加的 |
+| `internal/share` | 用户（上游叫分享）；`lines.go` 负责按线路发放和回收凭据 |
+| `internal/desired` | 把库里的内容算成下发给 agent 的状态，含中转目标和落地来源限制 |
+| `internal/core/singbox.go` | 生成 sing-box 服务端配置 |
+| `internal/subscription` | 各客户端格式的渲染；`lines.go` 按线路出节点，`norules.go` 是内置无规则 |
+| `internal/store/schema.go` | 数据库迁移；本分支从 v31 开始 |
 
-前端改完要 `cd web && npm run typecheck && npm run build`，再编 Linux `ctlvpsd` 才进生产二进制。
+上游的出口、转发、托管中转、模板、预设、多账号等后端代码仍在仓库里但没有界面入口，也没有被本分支的功能依赖。改动时不必为它们加新功能；要删就连同测试一起删干净。
 
-本地：一个终端 `make dev-web`，一个 `make dev`。验证：`make check` 或 `bash scripts/check.sh`。
+前端改完要 `cd web && npm run typecheck && npm run build`，再编 `ctlvpsd` 才进二进制。验证：`bash scripts/check.sh`；CI（`.github/workflows/ci.yml`）还会跑容器里的安装、卸载、升级、真实 agent 和真实浏览器检查，以 CI 为准。
 
-## 3. 容易搞混
+## 3. 发版和升级
 
-- 订阅只从节点库生成或转换外部订阅，分享订阅由分享管理。已删除配置上传与托管功能，不要重新加入；旧上传记录保留数据但不再提供下载。
-- **模板**是客户端打开订阅时的整份底稿（DNS、组、分流）。**预设**只是往订阅的「代理组 / 规则」里盖一层，客户端下载不到。两栏空着就听模板。套预设要组和规则一起套，只套一半会打架。分享没有这两栏，套预设对分享无效。一种模板只覆盖一种格式。
-- **流量**：入站 = 网卡收，出站 = 网卡发，汇总 = 入+出。配额按汇总。不要再搞「单双向」，不要对分享做 `2×`，不要把 Snell IPAccounting 和 nft 加在一起。
-- **重置日**：1–28 固定那天；29/30/31 只能是「每月最后一天」（存 31）。
-- 内核版本钉死在设置里，下拉从上游拉列表，**选中保存才升级**，不会自动追最新。
-- sing-box 只适配官方发行版；不修改或自行编译内核，不保留自编译版本、补丁和含其二进制的发行产物。官方版未通过验证的能力应明确限制，不能以维护自有内核分支解决。
+- 仓库主人明确授权在这个分支上直接改、commit、push、发版。发版：推 `vX.Y.Z` tag → Release 工作流先跑完整 CI，再生成草稿 → `gh release edit vX.Y.Z --draft=false --latest` 发布。先在 `CHANGELOG.md` 顶部加上该版本的小节（发布说明从这里生成）。
+- 发行来源写的是本仓库（`internal/secureupdate/checksum.go`、`internal/assets/install-agent.sh`、`internal/api/servers.go`）。改仓库名要一起改。
+- 控制端升级：`install.sh --repo yanglingjieee/VpsCT --update --auto-rollback`；agent 随后自动同步，也可以在节点上执行控制端提供的 `/install-agent.sh --update`。
+- 数据库迁移只追加，不改已发布的迁移。控制端和 agent 的协议变化要考虑“控制端先升、agent 后升”的那段时间。
 
 ## 4. 别做的事
 
-- 不要把节点密码、订阅 token、SSH 主机 IP、用户桌面里的订阅地址写进仓库或回复。
-- 不要把个人域名、`update-url`、个人 IP-CIDR 写进产品模板。
-- 不要擅自 commit / push 或发布 Release；用户说了再做。
+- 不要把节点密码、订阅 token、专属链接、SSH 主机 IP 写进仓库或回复。
+- 不要把个人域名、个人 IP 写进产品内置的配置（`norules.go` 等）；用户自己的规则在面板的数据里。
+- sing-box 只用官方发行版；不修改或自行编译内核。
+- 流量口径：入站 = 网卡收，出站 = 网卡发，配额按汇总。用户凭据在远端一侧计量，入账时已换成用户视角的上传/下载。
+- 重置日：1–28 固定那天；29/30/31 都是“每月最后一天”（存 31）。
 - 第三方许可文本由 `scripts/third-party.py` 生成；依赖变更要同步更新。
-- README 及链接的说明文档统一使用 `1.`、`1.1` 层级标题；同时检查步骤、部署方式和链接，保持原始许可证正文完整。
 - 在线 GeoIP 默认关闭，启用会向第三方发送公网客户端 IP，不能静默开启。
 - 不要改 git config，不要 `--no-verify`。
 - 前端改了可见行为，能开浏览器就点一遍；不能开就说清楚验证了什么。
