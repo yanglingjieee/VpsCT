@@ -83,22 +83,26 @@ const (
 
 // Server is a VPS managed (or at least observed) by ctlvps.
 type Server struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Region        string    `json:"region"` // two-letter country/region code
-	PublicHost    string    `json:"public_host"`
-	Tags          []string  `json:"tags"`
-	Notes         string    `json:"notes"`
-	QuotaBytes    int64     `json:"quota_bytes"`     // 0 = unlimited
-	QuotaResetDay int       `json:"quota_reset_day"` // 1..28, or 31 = last day (29/30/31 normalize to 31)
-	QuotaBilling  string    `json:"quota_billing"`   // kept for compat; quota always uses inbound+outbound
-	CoreMode      CoreMode  `json:"core_mode"`
-	IPv4Only      bool      `json:"ipv4_only"`
-	PreferIPv6    bool      `json:"prefer_ipv6"` // outbound prefers AAAA, falls back to A; ignored when IPv4Only
-	CertMode      string    `json:"cert_mode"`   // self_signed|acme|external
-	Enabled       bool      `json:"enabled"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            int64    `json:"id"`
+	Name          string   `json:"name"`
+	Region        string   `json:"region"` // two-letter country/region code
+	PublicHost    string   `json:"public_host"`
+	Tags          []string `json:"tags"`
+	Notes         string   `json:"notes"`
+	QuotaBytes    int64    `json:"quota_bytes"`     // 0 = unlimited
+	QuotaResetDay int      `json:"quota_reset_day"` // 1..28, or 31 = last day (29/30/31 normalize to 31)
+	QuotaBilling  string   `json:"quota_billing"`   // kept for compat; quota always uses inbound+outbound
+	CoreMode      CoreMode `json:"core_mode"`
+	IPv4Only      bool     `json:"ipv4_only"`
+	PreferIPv6    bool     `json:"prefer_ipv6"` // outbound prefers AAAA, falls back to A; ignored when IPv4Only
+	// IngressAck: another firewall on the host filters inbound traffic and the
+	// administrator opens node ports there, so the agent neither edits rules
+	// nor reports that it cannot.
+	IngressAck bool      `json:"ingress_ack"`
+	CertMode   string    `json:"cert_mode"` // self_signed|acme|external
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // AgentStatus is derived from the last heartbeat.

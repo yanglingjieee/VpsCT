@@ -561,7 +561,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	a.mu.Unlock()
 	if policy, err := secureupdate.LoadPolicy(); currentDesired != nil && err == nil && !policy.PauseConfig && secureupdate.Allow("agent.configure") == nil {
 		if release, err := lockConfiguration(); err == nil {
-			if err := a.NFT.EnsureResourceIngress(ctx, currentDesired.Nodes, currentDesired.Forwards); err != nil {
+			if err := a.NFT.EnsureResourceIngress(ctx, currentDesired.Nodes, currentDesired.Forwards); err != nil && !(currentDesired.IngressAck && nft.ForeignIngress(err)) {
 				a.State.ApplyError = "节点端口开放失败: " + err.Error()
 			}
 			release()
@@ -1024,7 +1024,9 @@ func (a *Agent) apply(ctx context.Context, ds *agentproto.DesiredState) ([]strin
 		}
 	}
 	if len(errs) == 0 {
-		if err := a.NFT.EnsureResourceIngress(ctx, ds.Nodes, ds.Forwards); err != nil {
+		// With the administrator's acknowledgement, another firewall manager
+		// owning the input hook is the expected state, not a failure.
+		if err := a.NFT.EnsureResourceIngress(ctx, ds.Nodes, ds.Forwards); err != nil && !(ds.IngressAck && nft.ForeignIngress(err)) {
 			errs = append(errs, fmt.Errorf("节点端口开放失败: %w", err))
 		}
 	}

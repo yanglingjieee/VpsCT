@@ -90,6 +90,7 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 		CoreMode:                string(server.CoreMode),
 		IPv4Only:                server.IPv4Only,
 		PreferIPv6:              server.PreferIPv6 && !server.IPv4Only,
+		IngressAck:              server.IngressAck,
 		Nodes:                   []agentproto.NodeSpec{},
 		Versions:                versions,
 		Connlog: agentproto.ConnlogSpec{

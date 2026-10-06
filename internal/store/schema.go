@@ -684,6 +684,7 @@ CREATE TRIGGER node_meter_update AFTER UPDATE ON nodes WHEN NEW.server_id IS NOT
  INSERT OR REPLACE INTO node_meter_identities VALUES(NEW.id,NEW.server_id,NEW.listen_port,NEW.core,NEW.share_id,NEW.attach_node_id,NEW.uncounted);
 END;
  ALTER TABLE servers ADD COLUMN prefer_ipv6 INTEGER NOT NULL DEFAULT 0 CHECK(prefer_ipv6 IN (0,1));
+ ALTER TABLE servers ADD COLUMN ingress_ack INTEGER NOT NULL DEFAULT 0 CHECK(ingress_ack IN (0,1));
  ALTER TABLE shares ADD COLUMN line_mode TEXT NOT NULL DEFAULT '' CHECK(line_mode IN ('','all','selected'));
  ALTER TABLE shares ADD COLUMN line_ids TEXT NOT NULL DEFAULT '[]';
  CREATE TABLE lines (

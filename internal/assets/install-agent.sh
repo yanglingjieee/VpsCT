@@ -137,8 +137,15 @@ elif command -v yum >/dev/null 2>&1; then
 elif command -v apk >/dev/null 2>&1; then
   apk add --no-cache nftables curl ca-certificates unzip tar chrony >/dev/null
 fi
-systemctl enable --now nftables >/dev/null 2>&1 || true
-systemctl enable --now chrony >/dev/null 2>&1 || systemctl enable --now chronyd >/dev/null 2>&1 || true
+# nftables.service is deliberately left alone: starting it loads the
+# distribution's /etc/nftables.conf, which on Debian begins with
+# "flush ruleset" and would wipe rules other software (or a container host)
+# installed. The agent only needs the nft command; it loads its own tables.
+command -v nft >/dev/null 2>&1 || { echo "nft command not found after installing nftables" >&2; exit 1; }
+# A container cannot set the clock; its host keeps the time.
+if ! systemd-detect-virt --container --quiet 2>/dev/null; then
+  systemctl enable --now chrony >/dev/null 2>&1 || systemctl enable --now chronyd >/dev/null 2>&1 || true
+fi
 
 echo "==> downloading ctlvps-agent (linux-$ARCH)"
 download_agent

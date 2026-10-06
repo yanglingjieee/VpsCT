@@ -31,6 +31,10 @@ type ingressEntry struct {
 
 var errForeignIngress = errors.New("检测到其他入站防火墙规则，请手动放行节点端口；自动开放仅支持原生 inet filter input")
 
+// ForeignIngress reports that another firewall manager owns inbound
+// filtering, so node ports were left for the administrator to open.
+func ForeignIngress(err error) bool { return errors.Is(err, errForeignIngress) }
+
 // IngressRules modifies only our tagged rules in the administrator's input
 // chain. A separate accept base chain cannot override an existing drop chain.
 // Other firewall managers are deliberately not rewritten.

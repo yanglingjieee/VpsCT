@@ -101,6 +101,13 @@ add_unit() {
   [[ "$state" == loaded || "$state" == masked ]] || die "服务状态异常：$unit"
   fragment=$(systemctl show "$unit" -p FragmentPath --value) || die "无法读取服务路径：$unit"
   dropins=$(systemctl show "$unit" -p DropInPaths --value) || die "无法读取服务覆盖配置：$unit"
+  # Drop-ins for every service at once (service.d, e.g. the one LXC generates
+  # for containers) are host policy, not a customisation of this unit.
+  local kept=() dropin
+  for dropin in $dropins; do
+    [[ "$dropin" == */systemd/system/service.d/* || "$dropin" == */systemd/generator*/service.d/* ]] || kept+=("$dropin")
+  done
+  dropins=${kept[*]:-}
   if [[ -n "$dropins" ]]; then
     [[ "$unit" =~ ^ctlvps-(snell|mita)@[0-9]+\.service$ && "$dropins" == "/etc/systemd/system/$unit.d/meter.conf" ]] || die "$unit 有自定义 systemd 覆盖配置，请手动处理"
     content=$(cat "$(path "$dropins")") || die '无法读取节点计量配置'

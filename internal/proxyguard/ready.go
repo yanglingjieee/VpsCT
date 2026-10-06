@@ -87,8 +87,19 @@ func Ready() error {
 	if e != nil {
 		return e
 	}
-	if string(got) != string(want) {
+	if string(got) != string(want) && !volatile(Directory) {
 		return fmt.Errorf("proxy egress readiness belongs to a different boot")
 	}
 	return nil
+}
+
+// volatile reports that path is on a tmpfs. LXC gives a container its own
+// boot_id by mounting a file over procfs; a sandboxed unit gets a fresh
+// procfs without that mount and reads the host's. The two never agree there,
+// but a file on tmpfs cannot have survived a boot either, which is all the
+// comparison is meant to establish.
+func volatile(path string) bool {
+	const tmpfsMagic = 0x01021994
+	var s syscall.Statfs_t
+	return syscall.Statfs(path, &s) == nil && int64(s.Type) == tmpfsMagic
 }

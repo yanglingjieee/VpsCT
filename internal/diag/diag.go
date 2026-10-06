@@ -109,6 +109,11 @@ func (e *sysctlError) Error() string { return "sysctl: " + e.msg }
 
 // EnsureChrony makes sure a time daemon is enabled (best effort).
 func EnsureChrony(ctx context.Context) {
+	// A container cannot set the clock; its host keeps the time. Starting a
+	// time daemon there only produces a permanently failing unit.
+	if exec.CommandContext(ctx, "systemd-detect-virt", "--container", "--quiet").Run() == nil {
+		return
+	}
 	for _, unit := range []string{"chrony", "chronyd", "systemd-timesyncd"} {
 		if exec.CommandContext(ctx, "systemctl", "is-enabled", unit).Run() == nil {
 			_ = exec.CommandContext(ctx, "systemctl", "start", unit).Run()

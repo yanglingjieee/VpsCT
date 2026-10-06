@@ -142,6 +142,7 @@ type serverInput struct {
 	CoreMode      string   `json:"core_mode"`
 	IPv4Only      bool     `json:"ipv4_only"`
 	PreferIPv6    bool     `json:"prefer_ipv6"`
+	IngressAck    bool     `json:"ingress_ack"`
 	CertMode      string   `json:"cert_mode"`
 	Enabled       *bool    `json:"enabled"`
 }
@@ -186,6 +187,7 @@ func (in serverInput) apply(s *domain.Server) error {
 		return httpx.BadRequest("“仅 IPv4”和“优先 IPv6”不能同时开启")
 	}
 	s.PreferIPv6 = in.PreferIPv6
+	s.IngressAck = in.IngressAck
 	if in.Enabled != nil {
 		s.Enabled = *in.Enabled
 	}

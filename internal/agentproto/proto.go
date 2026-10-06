@@ -263,6 +263,7 @@ type DesiredState struct {
 	CoreMode                string                 `json:"core_mode"`
 	IPv4Only                bool                   `json:"ipv4_only"`
 	PreferIPv6              bool                   `json:"prefer_ipv6,omitempty"`
+	IngressAck              bool                   `json:"ingress_ack,omitempty"`
 	Nodes                   []NodeSpec             `json:"nodes"`
 	Forwards                []ForwardSpec          `json:"forwards,omitempty"`
 	Versions                map[string]CoreVersion `json:"versions"`
