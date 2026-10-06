@@ -427,6 +427,13 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 	if len(dnsServers) > 1 && !corecompat.ModernConfig(ds.Versions["sing-box"].Version) {
 		cfg["dns"].(map[string]any)["independent_cache"] = true
 	}
+	// An expired answer is used at once and refreshed in the background.
+	// Every new connection to a Reality inbound resolves its handshake
+	// target first; on a host with a slow or flaky resolver that lookup
+	// would otherwise stall, and sometimes fail, the whole connection.
+	if corecompat.ModernConfig(ds.Versions["sing-box"].Version) {
+		cfg["dns"].(map[string]any)["optimistic"] = true
+	}
 	return cfg, nil
 }
 

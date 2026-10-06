@@ -128,3 +128,20 @@ func TestMembersNeedSharedListener(t *testing.T) {
 		t.Fatal("member accepted on a listener that cannot tell users apart")
 	}
 }
+
+func TestOptimisticDNSOnModernCores(t *testing.T) {
+	dir := t.TempDir()
+	srv := domain.Server{ID: 1, Name: "la", PublicHost: "203.0.113.10", CoreMode: domain.CoreModeStable, CertMode: "self_signed"}
+	d := NewSingBox(Paths{BinDir: dir, ConfDir: dir, LogDir: dir, CertDir: filepath.Join(dir, "certs"), DataDir: dir}, NewSystemd())
+	for version, want := range map[string]bool{"1.14.1": true, "1.13.4": false, "": false} {
+		ds := &agentproto.DesiredState{ServerID: 1, PublicHost: "203.0.113.10", Tuning: agentproto.Tuning{GoMemLimitMB: 128},
+			Versions: map[string]agentproto.CoreVersion{"sing-box": {Version: version}}}
+		cfg, err := d.BuildConfig(ds, []agentproto.NodeSpec{specFor(t, srv, 5, "vless", 443, false)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, got := cfg["dns"].(map[string]any)["optimistic"]; got != want {
+			t.Fatalf("sing-box %q: optimistic DNS cache = %v, want %v", version, got, want)
+		}
+	}
+}

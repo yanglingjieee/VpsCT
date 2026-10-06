@@ -124,7 +124,9 @@ func readPolicy() (policy, error) {
 	if e != nil {
 		return p, e
 	}
-	if p.Boot != string(current) {
+	// See volatile: in an LXC container a sandboxed reader and the writer
+	// disagree about boot_id, but a policy on tmpfs is from this boot.
+	if p.Boot != string(current) && !volatile(Directory) {
 		return p, fmt.Errorf("stale proxy policy")
 	}
 	if p.Network != nil {
