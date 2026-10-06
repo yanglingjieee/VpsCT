@@ -157,6 +157,28 @@ func (s *Store) GetNode(ctx context.Context, id int64) (domain.Node, error) {
 	return n, err
 }
 
+// MoveNodePort changes a deployed node's listen port. Chain copies of the
+// node follow; the listener reservation triggers reject a port in use.
+func (s *Store) MoveNodePort(ctx context.Context, n *domain.Node, port int) error {
+	if port < 1 || port > 65535 {
+		return errors.New("端口必须在 1–65535 之间")
+	}
+	now := fmtTime(s.Now())
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE nodes SET listen_port=?,port=?,updated_at=? WHERE id=?`, port, port, now, n.ID); err != nil {
+			if strings.Contains(err.Error(), "listener") || strings.Contains(err.Error(), "constraint") {
+				return fmt.Errorf("端口 %d 已被占用", port)
+			}
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE nodes SET port=?,updated_at=? WHERE source=? AND server=? AND port=? AND protocol=?`, port, now, domain.NodeChain, n.Server, n.Port, n.Protocol); err != nil {
+			return err
+		}
+		n.ListenPort, n.Port = port, port
+		return nil
+	})
+}
+
 // NodeFilter narrows ListNodes.
 type NodeFilter struct {
 	Source         domain.NodeSource
@@ -166,6 +188,8 @@ type NodeFilter struct {
 	IDs            []int64
 	OnlyEnabled    bool
 	IncludeRevoked bool
+	// NoMembers leaves out per-user credentials on shared listeners.
+	NoMembers bool
 }
 
 // ListNodes returns nodes matching f ordered by sort_order, id.
@@ -193,6 +217,9 @@ func (s *Store) ListNodes(ctx context.Context, f NodeFilter) ([]domain.Node, err
 	}
 	if !f.IncludeRevoked {
 		where = append(where, "revoked=0")
+	}
+	if f.NoMembers {
+		where = append(where, "attach_node_id IS NULL")
 	}
 	if len(f.IDs) > 0 {
 		ph := make([]string, len(f.IDs))

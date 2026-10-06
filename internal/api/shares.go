@@ -75,6 +75,10 @@ type shareInput struct {
 	TemplateID     *int64               `json:"template_id"`
 	ConnlogEnabled bool                 `json:"connlog_enabled"`
 	Notes          string               `json:"notes"`
+	// LineMode gives the user their own credentials on shared lines:
+	// "all" follows every line, "selected" only LineIDs.
+	LineMode string  `json:"line_mode"`
+	LineIDs  []int64 `json:"line_ids"`
 }
 
 func (in shareInput) apply(sh *domain.Share) error {
@@ -133,6 +137,21 @@ func (in shareInput) apply(sh *domain.Share) error {
 	}
 	sh.ConnlogEnabled = in.ConnlogEnabled
 	sh.Notes = in.Notes
+	switch in.LineMode {
+	case domain.ShareLinesNone, domain.ShareLinesAll:
+		sh.LineMode, sh.LineIDs = in.LineMode, []int64{}
+	case domain.ShareLinesSelected:
+		sh.LineMode, sh.LineIDs = in.LineMode, []int64{}
+		seen := map[int64]bool{}
+		for _, id := range in.LineIDs {
+			if id > 0 && !seen[id] {
+				seen[id] = true
+				sh.LineIDs = append(sh.LineIDs, id)
+			}
+		}
+	default:
+		return httpx.BadRequest("线路范围无效")
+	}
 	return nil
 }
 

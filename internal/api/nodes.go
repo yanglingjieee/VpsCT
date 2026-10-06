@@ -135,6 +135,8 @@ func (a *API) listNodes(w http.ResponseWriter, r *http.Request) error {
 		ExternalSubID:  queryInt64Ptr(r, "external_sub_id"),
 		ShareID:        queryInt64Ptr(r, "share_id"),
 		IncludeRevoked: r.URL.Query().Get("include_revoked") == "1",
+		// Per-user credentials belong to the users page, not the node list.
+		NoMembers: r.URL.Query().Get("members") != "1" && queryInt64Ptr(r, "share_id") == nil,
 	}
 	nodes, err := a.Store.ListNodes(r.Context(), f)
 	if err != nil {
@@ -163,7 +165,13 @@ type nodeInput struct {
 	Enabled          *bool           `json:"enabled"`
 	URI              string          `json:"uri"` // alternative to fields
 	ChainFrontNodeID *int64          `json:"chain_front_node_id"`
+	// SNI and ListenPort edit a deployed node in place; its keys and every
+	// user's credentials stay.
+	SNI        string `json:"sni"`
+	ListenPort int    `json:"listen_port"`
 }
+
+func nodeSNI(n domain.Node) string { return provision.SNI(n) }
 
 func (in nodeInput) apply(n *domain.Node) error {
 	if in.URI != "" {
@@ -334,6 +342,9 @@ func (a *API) bulkDeleteNodes(w http.ResponseWriter, r *http.Request) error {
 	for sid := range servers {
 		_, _, _ = a.Desired.Publish(r.Context(), sid)
 	}
+	if len(servers) > 0 {
+		a.syncLines(r)
+	}
 	a.audit(r, "node.bulk_delete", "", map[string]any{"count": n})
 	httpx.OK(w, map[string]any{"deleted": n})
 	return nil
@@ -455,6 +466,36 @@ func (a *API) updateNode(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
+	if n.AttachNodeID != nil {
+		return httpx.BadRequest("这是用户在共用入口上的凭据，请在“用户”里调整")
+	}
+	relisten := false
+	if n.Source == domain.NodeDeployed && n.ServerID != nil && n.ShareID == nil {
+		if sni := strings.ToLower(strings.TrimSpace(in.SNI)); sni != "" && sni != nodeSNI(n) {
+			if err := a.requireNoMaintenance(r, *n.ServerID); err != nil {
+				return err
+			}
+			if err := provision.SetSNI(&n, sni); err != nil {
+				return httpx.BadRequest(err.Error())
+			}
+			if err := a.Store.UpdateNodeCredentials(r.Context(), &n); err != nil {
+				return err
+			}
+			relisten = true
+		}
+		if in.ListenPort > 0 && in.ListenPort != n.ListenPort {
+			if n.Network != nil {
+				return httpx.BadRequest("设置了自定义监听的节点请在网络设置里改端口")
+			}
+			if err := a.requireNoMaintenance(r, *n.ServerID); err != nil {
+				return err
+			}
+			if err := a.Store.MoveNodePort(r.Context(), &n, in.ListenPort); err != nil {
+				return httpx.Conflict(err.Error())
+			}
+			relisten = true
+		}
+	}
 	if n.Source == domain.NodeDeployed || n.Source == domain.NodeChain {
 		// only cosmetic fields may change on deployed nodes
 		if in.Name != "" {
@@ -477,8 +518,10 @@ func (a *API) updateNode(w http.ResponseWriter, r *http.Request) error {
 	}
 	if n.Source == domain.NodeDeployed && n.ServerID != nil {
 		_, _, _ = a.Desired.Publish(r.Context(), *n.ServerID)
+		// Line names shown to users and member credentials follow the node.
+		a.syncLines(r)
 	}
-	a.audit(r, "node.update", n.Name, nil)
+	a.audit(r, "node.update", n.Name, map[string]any{"relisten": relisten})
 	httpx.OK(w, a.nodeViews(r, []domain.Node{n})[0])
 	return nil
 }
@@ -500,6 +543,7 @@ func (a *API) deleteNode(w http.ResponseWriter, r *http.Request) error {
 	}
 	if n.Source == domain.NodeDeployed && n.ServerID != nil {
 		_, _, _ = a.Desired.Publish(r.Context(), *n.ServerID)
+		a.syncLines(r) // its lines and the credentials on it are gone
 	}
 	a.audit(r, "node.delete", n.Name, nil)
 	httpx.NoContent(w)
@@ -571,6 +615,9 @@ func (a *API) regenerateNode(w http.ResponseWriter, r *http.Request) error {
 	if n.Source != domain.NodeDeployed || n.ServerID == nil {
 		return httpx.BadRequest("仅部署节点支持重置凭据")
 	}
+	if n.AttachNodeID != nil {
+		return httpx.BadRequest("这是用户在共用入口上的凭据，请在“用户”里重新签发")
+	}
 	s, err := a.Store.GetServer(r.Context(), *n.ServerID)
 	if err != nil {
 		return httpx.ErrNotFound
@@ -582,6 +629,7 @@ func (a *API) regenerateNode(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	_, _, _ = a.Desired.Publish(r.Context(), s.ID)
+	a.syncLines(r) // members copy the listener's new handshake keys
 	a.audit(r, "node.regenerate", n.Name, nil)
 	httpx.OK(w, a.nodeViews(r, []domain.Node{n})[0])
 	return nil

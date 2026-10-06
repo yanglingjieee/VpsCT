@@ -52,7 +52,7 @@ func (a *API) bulkRegenerateNodes(w http.ResponseWriter, r *http.Request) error 
 			continue
 		}
 		result.Name = node.Name
-		if node.Source != domain.NodeDeployed || node.ServerID == nil || node.Revoked {
+		if node.Source != domain.NodeDeployed || node.ServerID == nil || node.Revoked || node.AttachNodeID != nil {
 			result.Status = "skipped"
 			result.Message = "仅支持未撤销的已部署节点；链式节点请重置其原始节点"
 			results = append(results, result)
@@ -87,6 +87,9 @@ func (a *API) bulkRegenerateNodes(w http.ResponseWriter, r *http.Request) error 
 	for _, id := range ids {
 		ds, _, err := a.Desired.Publish(r.Context(), id)
 		serverResults = append(serverResults, serverResetResult{ID: id, Name: servers[id].Name, Published: err == nil, Revision: ds.Revision})
+	}
+	if rotated > 0 {
+		a.syncLines(r)
 	}
 	a.audit(r, "node.bulk_regenerate", "", map[string]any{"rotated": rotated, "results": results, "servers": serverResults})
 	httpx.OK(w, map[string]any{"rotated": rotated, "results": results, "servers": serverResults})

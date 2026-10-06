@@ -141,6 +141,7 @@ type serverInput struct {
 	QuotaBilling  string   `json:"quota_billing"`
 	CoreMode      string   `json:"core_mode"`
 	IPv4Only      bool     `json:"ipv4_only"`
+	PreferIPv6    bool     `json:"prefer_ipv6"`
 	CertMode      string   `json:"cert_mode"`
 	Enabled       *bool    `json:"enabled"`
 }
@@ -181,6 +182,10 @@ func (in serverInput) apply(s *domain.Server) error {
 		return httpx.BadRequest("cert_mode 无效")
 	}
 	s.IPv4Only = in.IPv4Only
+	if in.IPv4Only && in.PreferIPv6 {
+		return httpx.BadRequest("“仅 IPv4”和“优先 IPv6”不能同时开启")
+	}
+	s.PreferIPv6 = in.PreferIPv6
 	if in.Enabled != nil {
 		s.Enabled = *in.Enabled
 	}
@@ -256,6 +261,9 @@ func (a *API) updateServer(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	_, _, _ = a.Desired.Publish(r.Context(), s.ID)
+	// Member credentials copy their listener's address, and landings only
+	// accept the entry servers' addresses.
+	a.syncLines(r)
 	a.audit(r, "server.update", s.Name, nil)
 	httpx.OK(w, a.serverView(r, s, true))
 	return nil

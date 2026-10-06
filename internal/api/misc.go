@@ -172,6 +172,8 @@ var editableSettings = map[string]bool{
 	domain.SettingAccessRetention: true, domain.SettingAgentOfflineSec: true, domain.SettingQuotaAlertPct: true,
 	domain.SettingSingBoxVersion: true, domain.SettingSnellVersion: true, domain.SettingMitaVersion: true, "core.mita_sha256": true, domain.SettingRateLimitPerMin: true,
 	"core.singbox_sha256": true, "core.snell_sha256": true, "quota.action": true, "site.default_template_id": true,
+	domain.SettingLandingSourceCheck: true,
+	"subscription.template.mihomo":   true, "subscription.template.shadowrocket": true, "subscription.template.surge": true, "subscription.template.singbox": true,
 }
 
 // SettingDefaults are returned when unset.
@@ -180,7 +182,7 @@ var SettingDefaults = map[string]string{
 	domain.SettingTelegramDaily: "0", domain.SettingTelegramHour: "9",
 	domain.SettingConnlogRetention: "7", domain.SettingAggRetention: "90", domain.SettingConnlogSelf: "1", domain.SettingSampleRetention: "48", domain.SettingHourlyRetention: "14",
 	domain.SettingAccessRetention: "30", domain.SettingAgentOfflineSec: "120", domain.SettingQuotaAlertPct: "80",
-	domain.SettingRateLimitPerMin: "60", "quota.action": "alert",
+	domain.SettingRateLimitPerMin: "60", "quota.action": "alert", domain.SettingLandingSourceCheck: "1",
 }
 
 func (a *API) coreVersions(w http.ResponseWriter, r *http.Request) error {
@@ -232,7 +234,7 @@ func (a *API) putSettings(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	for _, k := range changed {
-		if k == domain.SettingSingBoxVersion || k == domain.SettingSnellVersion || k == domain.SettingMitaVersion || k == "core.mita_sha256" || k == "core.singbox_sha256" || k == "core.snell_sha256" || k == domain.SettingConnlogSelf {
+		if k == domain.SettingSingBoxVersion || k == domain.SettingSnellVersion || k == domain.SettingMitaVersion || k == "core.mita_sha256" || k == "core.singbox_sha256" || k == "core.snell_sha256" || k == domain.SettingConnlogSelf || k == domain.SettingLandingSourceCheck {
 			_ = a.Desired.PublishAll(r.Context())
 			break
 		}
