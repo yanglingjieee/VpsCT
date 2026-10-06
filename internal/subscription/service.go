@@ -541,25 +541,53 @@ func (s *Service) Render(ctx context.Context, sub domain.Subscription, format st
 	if err != nil {
 		return nil, nil, err
 	}
-	// One link serves every client: when the chosen template is for another
-	// format, use the site's default template for the requested one.
-	if kind := templateKind(format); kind != "" && (b.Template == nil || b.Template.Kind != kind) {
-		if id := s.Store.GetSettingInt(ctx, DefaultTemplateSetting(kind), 0); id > 0 {
-			if t, err := s.Store.GetTemplate(ctx, int64(id)); err == nil && t.Kind == kind {
-				b.Template = &t
-			}
+	// A user's rules come from their rule set, written once per client
+	// family, so one link works everywhere.
+	if sub.Kind == domain.SubShare && sub.ShareID != nil {
+		if kind := templateKind(format); kind != "" {
+			b.Template = &domain.RuleTemplate{Kind: kind, Content: s.ShareRules(ctx, *sub.ShareID, kind)}
 		}
 	}
 	r, err := RenderBundle(b, format)
 	return r, b, err
 }
 
-// DefaultTemplateSetting is the settings key holding the default template id
-// for a template kind (mihomo, shadowrocket, surge, singbox).
-func DefaultTemplateSetting(kind string) string { return "subscription.template." + kind }
-
-// TemplateKinds lists the formats that render through a template.
+// TemplateKinds lists the client families a rule set can be written for.
 var TemplateKinds = []string{"mihomo", "shadowrocket", "surge", "singbox"}
+
+// ShareRules returns the profile template a user gets for a client family:
+// their rule set's, or the built-in "no rules" when they have none, receive
+// plain nodes, or the rule set was not written for that family.
+func (s *Service) ShareRules(ctx context.Context, shareID int64, kind string) string {
+	if sh, err := s.Store.GetShare(ctx, shareID); err == nil && sh.Delivery != domain.DeliveryNodes && sh.RulesetID != nil {
+		if rs, err := s.Store.GetRuleset(ctx, *sh.RulesetID); err == nil && strings.TrimSpace(rs.Content(kind)) != "" {
+			return rs.Content(kind)
+		}
+	}
+	return NoRules(kind)
+}
+
+// ShareFormats lists the client families worth offering a user: all of them
+// without a rule set, otherwise the ones the rule set was written for.
+func (s *Service) ShareFormats(ctx context.Context, sh domain.Share) []string {
+	if sh.Delivery == domain.DeliveryNodes {
+		return []string{}
+	}
+	if sh.RulesetID != nil {
+		if rs, err := s.Store.GetRuleset(ctx, *sh.RulesetID); err == nil {
+			out := []string{}
+			for _, k := range TemplateKinds {
+				if strings.TrimSpace(rs.Content(k)) != "" {
+					out = append(out, k)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+	return append([]string{}, TemplateKinds...)
+}
 
 func templateKind(format string) string {
 	switch NormalizeFormat(format) {

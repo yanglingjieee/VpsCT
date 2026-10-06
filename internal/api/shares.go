@@ -21,13 +21,39 @@ type ShareView struct {
 	Subscription *SubscriptionView `json:"subscription,omitempty"`
 	Nodes        []NodeView        `json:"nodes,omitempty"`
 	UserName     string            `json:"user_name,omitempty"`
+	// Link is the user's own address: a page in a browser, a profile in a
+	// client.
+	Link        string       `json:"link,omitempty"`
+	RulesetName string       `json:"ruleset_name"`
+	LineCount   int          `json:"line_count"`
+	Lines       []LineUsage  `json:"lines,omitempty"`
+	Formats     []string     `json:"formats,omitempty"`
+	NodeLinks   []PersonNode `json:"node_links,omitempty"`
 }
 
 func (a *API) shareView(r *http.Request, sh domain.Share, withNodes bool) ShareView {
-	v := ShareView{Share: sh, Usage: a.Shares.UsageOf(sh)}
+	v := ShareView{Share: sh, Usage: a.Shares.UsageOf(sh), RulesetName: "无规则"}
+	if sh.RulesetID != nil {
+		if rs, err := a.Store.GetRuleset(r.Context(), *sh.RulesetID); err == nil {
+			v.RulesetName = rs.Name
+		}
+	}
+	if lines, err := a.Store.ShareLines(r.Context(), sh); err == nil {
+		v.LineCount = len(lines)
+	}
 	if sub, err := a.Store.GetSubscriptionByShare(r.Context(), sh.ID); err == nil {
 		sv := a.subView(r, sub, true)
 		v.Subscription = &sv
+		if v.Link = sv.ShortLink; v.Link == "" {
+			v.Link = sv.Links["auto"]
+		}
+		if withNodes {
+			v.NodeLinks = a.shareNodes(r.Context(), sub)
+		}
+	}
+	if withNodes {
+		v.Lines = a.shareLines(r.Context(), sh)
+		v.Formats = a.Subs.ShareFormats(r.Context(), sh)
 	}
 	if sh.UserID != nil {
 		if u, err := a.Store.GetUser(r.Context(), *sh.UserID); err == nil {
@@ -79,6 +105,9 @@ type shareInput struct {
 	// "all" follows every line, "selected" only LineIDs.
 	LineMode string  `json:"line_mode"`
 	LineIDs  []int64 `json:"line_ids"`
+	// Delivery: "profile" (one-tap lines + rules) or "nodes" (just the nodes).
+	Delivery  string `json:"delivery"`
+	RulesetID *int64 `json:"ruleset_id"`
 }
 
 func (in shareInput) apply(sh *domain.Share) error {
@@ -152,6 +181,19 @@ func (in shareInput) apply(sh *domain.Share) error {
 	default:
 		return httpx.BadRequest("线路范围无效")
 	}
+	switch in.Delivery {
+	case "", domain.DeliveryProfile:
+		sh.Delivery = domain.DeliveryProfile
+	case domain.DeliveryNodes:
+		sh.Delivery = domain.DeliveryNodes
+	default:
+		return httpx.BadRequest("交付方式无效")
+	}
+	if in.RulesetID != nil && *in.RulesetID == 0 {
+		sh.RulesetID = nil
+	} else {
+		sh.RulesetID = in.RulesetID
+	}
 	return nil
 }
 
@@ -163,6 +205,13 @@ func (a *API) createShare(w http.ResponseWriter, r *http.Request) error {
 	sh := domain.Share{}
 	if err := in.apply(&sh); err != nil {
 		return err
+	}
+	if in.RulesetID == nil {
+		if id := int64(a.Store.GetSettingInt(r.Context(), domain.SettingDefaultRuleset, 0)); id > 0 {
+			if _, err := a.Store.GetRuleset(r.Context(), id); err == nil {
+				sh.RulesetID = &id
+			}
+		}
 	}
 	token, err := a.Shares.Create(r.Context(), &sh)
 	if err != nil {

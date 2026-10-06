@@ -68,7 +68,7 @@ func (m *Manager) Create(ctx context.Context, sh *domain.Share) (string, error) 
 		TokenHash:      auth.HashToken(token),
 		TokenHint:      auth.TokenHint(token),
 		TemplateID:     sh.TemplateID,
-		DefaultFormat:  "mihomo",
+		DefaultFormat:  defaultFormat(sh.Delivery),
 		UserinfoHeader: true,
 		ShowInfoNodes:  true,
 		ShareID:        &sh.ID,
@@ -95,6 +95,15 @@ func (m *Manager) Create(ctx context.Context, sh *domain.Share) (string, error) 
 	return token, nil
 }
 
+// defaultFormat is what a client we cannot identify receives: a full
+// profile, or plain node links for users who are only given nodes.
+func defaultFormat(delivery string) string {
+	if delivery == domain.DeliveryNodes {
+		return "raw"
+	}
+	return "mihomo"
+}
+
 // Update saves edits and reconciles nodes.
 func (m *Manager) Update(ctx context.Context, sh *domain.Share) error {
 	if err := m.Store.ValidateShareNetwork(ctx, sh.Targets); err != nil {
@@ -116,6 +125,7 @@ func (m *Manager) Update(ctx context.Context, sh *domain.Share) error {
 	if sub, err := m.Store.GetSubscriptionByShare(ctx, sh.ID); err == nil {
 		sub.Name = sh.Name
 		sub.TemplateID = sh.TemplateID
+		sub.DefaultFormat = defaultFormat(sh.Delivery)
 		// Share UI only picks a template; leftover stock groups/rules would
 		// hide ⚡️ smart / 地区组 / RULE-SET from the profile.
 		sub.ProxyGroups = nil

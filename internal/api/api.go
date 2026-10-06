@@ -420,6 +420,13 @@ func (a *API) routes() {
 	a.handle("PUT /api/v1/presets/{id}", adminAccess, a.updatePreset)
 	a.handle("DELETE /api/v1/presets/{id}", adminAccess, a.deletePreset)
 
+	// rule sets
+	a.handle("GET /api/v1/rulesets", adminAccess, a.listRulesets)
+	a.handle("POST /api/v1/rulesets", adminAccess, a.createRuleset)
+	a.handle("PUT /api/v1/rulesets/{id}", adminAccess, a.updateRuleset)
+	a.handle("DELETE /api/v1/rulesets/{id}", adminAccess, a.deleteRuleset)
+	a.handle("POST /api/v1/rulesets/{id}/default", adminAccess, a.setDefaultRuleset)
+
 	// lines
 	a.handle("GET /api/v1/lines", adminAccess, a.listLines)
 	a.handle("GET /api/v1/lines/candidates", adminAccess, a.lineCandidates)

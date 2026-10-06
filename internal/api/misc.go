@@ -173,7 +173,7 @@ var editableSettings = map[string]bool{
 	domain.SettingSingBoxVersion: true, domain.SettingSnellVersion: true, domain.SettingMitaVersion: true, "core.mita_sha256": true, domain.SettingRateLimitPerMin: true,
 	"core.singbox_sha256": true, "core.snell_sha256": true, "quota.action": true, "site.default_template_id": true,
 	domain.SettingLandingSourceCheck: true,
-	"subscription.template.mihomo":   true, "subscription.template.shadowrocket": true, "subscription.template.surge": true, "subscription.template.singbox": true,
+	domain.SettingDefaultRuleset:     true,
 }
 
 // SettingDefaults are returned when unset.

@@ -38,17 +38,22 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 		t.Fatalf("line view: %v", relay)
 	}
 
+	render := func(sh map[string]any, format string) string {
+		sub := sh["subscription"].(map[string]any)
+		return c.do("GET", "/api/v1/subscriptions/"+itoa(sub["id"])+"/render?format="+format, nil, 200)["body"].(string)
+	}
 	user := func(name string, body map[string]any) (map[string]any, string) {
 		body["name"] = name
 		sh := c.do("POST", "/api/v1/shares", body, 201)
-		sub := sh["subscription"].(map[string]any)
-		r := c.do("GET", "/api/v1/subscriptions/"+itoa(sub["id"])+"/render?format=mihomo", nil, 200)
-		return sh, r["body"].(string)
+		return sh, render(sh, "mihomo")
 	}
 	yang, yangBody := user("YANG", map[string]any{"line_mode": "all", "quota_bytes": 1 << 30, "reset_day": 1})
-	_, sanBody := user("sansan", map[string]any{"line_mode": "selected", "line_ids": []any{direct["id"]}})
+	san, sanBody := user("sansan", map[string]any{"line_mode": "selected", "line_ids": []any{direct["id"]}})
 	c.do("POST", "/api/v1/shares", map[string]any{"name": "x", "line_mode": "nonsense"}, 400)
-	if !strings.Contains(yangBody, "name: 直连") || !strings.Contains(yangBody, "name: 家宽") || !strings.Contains(yangBody, "dialer-proxy: 直连") {
+	c.do("POST", "/api/v1/shares", map[string]any{"name": "x", "delivery": "nonsense"}, 400)
+	// Every line, relays included, is one ordinary proxy on the entry server:
+	// the landing never appears in a client profile.
+	if !strings.Contains(yangBody, "name: 直连") || !strings.Contains(yangBody, "name: 家宽") || strings.Contains(yangBody, "dialer-proxy") || strings.Contains(yangBody, "203.0.113.9") || strings.Contains(yangBody, "26903") {
 		t.Fatalf("YANG's lines:\n%s", yangBody)
 	}
 	if strings.Contains(sanBody, "家宽") || !strings.Contains(sanBody, "name: 直连") {
@@ -64,11 +69,15 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 		t.Fatalf("no proxy %q in:\n%s", name, body)
 		return ""
 	}
-	if uuid(yangBody, "直连") == uuid(sanBody, "直连") {
-		t.Fatal("two users share one credential")
+	if uuid(yangBody, "直连") == uuid(sanBody, "直连") || uuid(yangBody, "直连") == uuid(yangBody, "家宽") {
+		t.Fatal("every user and every line has its own credential")
 	}
-	if len(yang["nodes"].([]any)) != 2 {
-		t.Fatalf("YANG owns an entry and a landing credential: %v", yang["nodes"])
+	if len(yang["nodes"].([]any)) != 3 {
+		t.Fatalf("YANG owns a credential per line and machine: %v", yang["nodes"])
+	}
+	usage := yang["lines"].([]any)
+	if len(usage) != 2 || usage[1].(map[string]any)["landing_server"] != "landing" || usage[1].(map[string]any)["entry_server"] != "entry" || usage[1].(map[string]any)["ready"] != true {
+		t.Fatalf("per-line usage on both machines: %v", usage)
 	}
 	for _, n := range c.do("GET", "/api/v1/nodes", nil, 200)["list"].([]any) {
 		if n.(map[string]any)["attach_node_id"] != nil {
@@ -80,35 +89,84 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	}
 
 	// The camouflage domain and port of a live listener change in place:
-	// same keys, same user secrets, new address in everyone's subscription.
+	// same keys, same user secrets, new address in everyone's profile.
 	before := uuid(yangBody, "直连")
-	edited := c.do("PUT", "/api/v1/nodes/"+itoa(in["id"]), map[string]any{"sni": "Mirror.Example.org", "listen_port": 8443}, 409)
-	_ = edited
-	edited = c.do("PUT", "/api/v1/nodes/"+itoa(in["id"]), map[string]any{"sni": "Mirror.Example.org", "listen_port": 2053}, 200)
+	c.do("PUT", "/api/v1/nodes/"+itoa(in["id"]), map[string]any{"sni": "Mirror.Example.org", "listen_port": 8443}, 409)
+	edited := c.do("PUT", "/api/v1/nodes/"+itoa(in["id"]), map[string]any{"sni": "Mirror.Example.org", "listen_port": 2053}, 200)
 	if edited["listen_port"].(float64) != 2053 {
 		t.Fatalf("port not moved: %v", edited)
 	}
 	c.do("PUT", "/api/v1/nodes/"+itoa(in["id"]), map[string]any{"sni": "not a host"}, 400)
-	sub := yang["subscription"].(map[string]any)
-	yangBody = c.do("GET", "/api/v1/subscriptions/"+itoa(sub["id"])+"/render?format=mihomo", nil, 200)["body"].(string)
-	if uuid(yangBody, "直连") != before || !strings.Contains(yangBody, "servername: mirror.example.org") || !strings.Contains(yangBody, "port: 2053") || strings.Contains(yangBody, "mirrors.example.edu") {
-		t.Fatalf("listener edit did not reach the subscription:\n%s", yangBody)
+	yangBody = render(yang, "mihomo")
+	if uuid(yangBody, "直连") != before || strings.Count(yangBody, "servername: mirror.example.org") != 2 || strings.Count(yangBody, "port: 2053") != 2 || strings.Contains(yangBody, "mirrors.example.edu") {
+		t.Fatalf("listener edit did not reach the profile:\n%s", yangBody)
 	}
 	member := yang["nodes"].([]any)[0].(map[string]any)
 	c.do("PUT", "/api/v1/nodes/"+itoa(member["id"]), map[string]any{"name": "x"}, 400)
 	c.do("POST", "/api/v1/nodes/"+itoa(member["id"])+"/regenerate", nil, 400)
 
-	// Each client format gets its own default template through one link.
-	tpl := c.do("POST", "/api/v1/templates", map[string]any{"name": "sr", "kind": "shadowrocket", "content": "[Proxy]\n{{PROXIES}}\n[Proxy Group]\nPROXY = select,{{all}}\n[Rule]\nFINAL,PROXY\n"}, 201)
-	c.do("PUT", "/api/v1/settings", map[string]any{"subscription.template.shadowrocket": itoa(tpl["id"])}, 200)
-	sr := c.do("GET", "/api/v1/subscriptions/"+itoa(sub["id"])+"/render?format=shadowrocket", nil, 200)["body"].(string)
-	if !strings.Contains(sr, "PROXY = select,直连,家宽") || !strings.Contains(sr, "underlying-proxy=") {
-		t.Fatalf("shadowrocket default template not used:\n%s", sr)
+	// Rules: written once per client family; without a rule set, or for a
+	// family it was not written for, a user gets the built-in "no rules".
+	if !strings.Contains(yangBody, "name: 节点选择") || !strings.Contains(yangBody, "MATCH,节点选择") {
+		t.Fatalf("no rules by default:\n%s", yangBody)
+	}
+	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "mihomo": "proxies: [\n"}, 400)
+	rules := c.do("POST", "/api/v1/rulesets", map[string]any{"name": "我的规则", "shadowrocket": "[Proxy]\n{{PROXIES}}\n[Proxy Group]\n我的线路 = select,{{all}}\n[Rule]\nDOMAIN-SUFFIX,cn,DIRECT\nFINAL,我的线路\n"}, 201)
+	if f := rules["formats"].([]any); len(f) != 1 || f[0] != "shadowrocket" {
+		t.Fatalf("formats: %v", f)
+	}
+	yang = c.do("PUT", "/api/v1/shares/"+itoa(yang["id"]), map[string]any{"name": "YANG", "line_mode": "all", "quota_bytes": 1 << 30, "reset_day": 1, "ruleset_id": rules["id"]}, 200)
+	if yang["ruleset_name"] != "我的规则" || len(yang["formats"].([]any)) != 1 {
+		t.Fatalf("rule set not applied: %v %v", yang["ruleset_name"], yang["formats"])
+	}
+	if sr := render(yang, "shadowrocket"); !strings.Contains(sr, "我的线路 = select,直连,家宽") || !strings.Contains(sr, "DOMAIN-SUFFIX,cn,DIRECT") || strings.Contains(sr, "underlying-proxy") {
+		t.Fatalf("shadowrocket rules:\n%s", sr)
+	}
+	if clash := render(yang, "mihomo"); !strings.Contains(clash, "MATCH,节点选择") {
+		t.Fatal("a family the rule set was not written for falls back to no rules")
+	}
+	if sr := render(san, "shadowrocket"); !strings.Contains(sr, "节点选择 = select,直连") {
+		t.Fatalf("no-rules shadowrocket:\n%s", sr)
+	}
+	c.do("POST", "/api/v1/rulesets/"+itoa(rules["id"])+"/default", nil, 204)
+	if next := c.do("POST", "/api/v1/shares", map[string]any{"name": "新人", "line_mode": "all"}, 201); next["ruleset_name"] != "我的规则" {
+		t.Fatalf("new users get the default rule set: %v", next["ruleset_name"])
+	}
+	if list := c.do("GET", "/api/v1/rulesets", nil, 200); list["default_id"] != rules["id"] || list["none_users"].(float64) != 1 || list["list"].([]any)[0].(map[string]any)["users"].(float64) != 2 {
+		t.Fatalf("rule set list: %v %v", list["default_id"], list["none_users"])
 	}
 
-	// Removing a line takes the credentials that only it needed.
+	// A user's own link: their page in a browser, their profile in a client.
+	token := yang["subscription"].(map[string]any)["token"].(string)
+	page := c.do("GET", "/s/"+token+"?page=1", nil, 200)
+	if page["name"] != "YANG" || page["rules"] != "我的规则" || len(page["lines"].([]any)) != 2 || len(page["formats"].([]any)) != 1 || !strings.HasSuffix(page["url"].(string), "/s/"+token) || page["nodes"] != nil {
+		t.Fatalf("personal page: %v", page)
+	}
+	if l := page["lines"].([]any)[1].(map[string]any); l["name"] != "家宽" || l["entry_server"] != "" || l["landing_server"] != nil {
+		t.Fatalf("the page must not reveal which machines carry a line: %v", l)
+	}
+
+	// Carpooling: the same lines handed over as plain nodes, no profile.
+	pool := c.do("POST", "/api/v1/shares", map[string]any{"name": "拼车", "line_mode": "all", "delivery": "nodes", "ruleset_id": rules["id"]}, 201)
+	links := pool["node_links"].([]any)
+	if len(links) != 2 || !strings.HasPrefix(links[1].(map[string]any)["uri"].(string), "vless://") || !strings.Contains(links[1].(map[string]any)["uri"].(string), "@198.51.100.1:2053") || pool["formats"] != nil {
+		t.Fatalf("a relay line is one node link on its entry: %v", links)
+	}
+	poolToken := pool["subscription"].(map[string]any)["token"].(string)
+	if page = c.do("GET", "/s/"+poolToken+"?page=1", nil, 200); page["delivery"] != "nodes" || len(page["nodes"].([]any)) != 2 || page["rules"] != "无规则" {
+		t.Fatalf("carpool page: %v", page)
+	}
+	if sr := render(pool, "shadowrocket"); !strings.Contains(sr, "节点选择 = select,直连,家宽") {
+		t.Fatal("node-only users never get a rule set")
+	}
+
+	// Removing a line takes its credentials on both machines.
 	c.do("DELETE", "/api/v1/lines/"+itoa(relay["id"]), nil, 204)
-	if got := c.do("GET", "/api/v1/shares/"+itoa(yang["id"]), nil, 200); len(got["nodes"].([]any)) != 1 {
-		t.Fatalf("landing credential left behind: %v", got["nodes"])
+	if got := c.do("GET", "/api/v1/shares/"+itoa(yang["id"]), nil, 200); len(got["nodes"].([]any)) != 1 || len(got["lines"].([]any)) != 1 {
+		t.Fatalf("relay credentials left behind: %v", got["nodes"])
+	}
+	c.do("DELETE", "/api/v1/rulesets/"+itoa(rules["id"]), nil, 204)
+	if got := c.do("GET", "/api/v1/shares/"+itoa(yang["id"]), nil, 200); got["ruleset_name"] != "无规则" {
+		t.Fatalf("a deleted rule set leaves its users without rules: %v", got["ruleset_name"])
 	}
 }

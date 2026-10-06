@@ -110,6 +110,26 @@ func (a *API) serveSub(w http.ResponseWriter, r *http.Request, sub domain.Subscr
 			return fail(http.StatusGone, "revoked", "subscription revoked")
 		}
 	}
+	// A user's link opened in a browser is their own page: usage, lines and
+	// one-tap import. The page asks for its data with ?page=1.
+	if sub.ShareID != nil {
+		if r.URL.Query().Get("page") == "1" {
+			sh, err := a.Store.GetShare(ctx, *sub.ShareID)
+			if err != nil {
+				return fail(http.StatusGone, "revoked", "subscription revoked")
+			}
+			logEntry.Format, logEntry.Status = "page", http.StatusOK
+			_ = a.Store.AddAccessLog(ctx, logEntry)
+			w.Header().Set("Cache-Control", "no-store")
+			httpx.OK(w, a.personalPage(r, sub, sh))
+			return nil
+		}
+		if subscriptionBrowserRequest(r) && a.Static != nil {
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			a.Static.ServeHTTP(w, r)
+			return nil
+		}
+	}
 	if subscriptionBrowserRequest(r) {
 		logEntry.Status = http.StatusForbidden
 		_ = a.Store.AddAccessLog(ctx, logEntry)
