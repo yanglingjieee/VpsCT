@@ -15,10 +15,10 @@
 
 | PR | 提议更新 | 核验结果与处理 |
 |---|---|---|
-| [#1](https://github.com/YongshengWin/VpsCT/pull/1) | TypeScript 5 → 7、Tailwind 3 → 4 | TypeScript 删除了当前使用的 `baseUrl` 选项，类型检查失败；单独运行 Vite 也因 Tailwind 4 的 PostCSS 接入方式变化而失败。该混合升级不合并，拆为编译工具和样式迁移。 |
-| [#2](https://github.com/YongshengWin/VpsCT/pull/2)、[#5](https://github.com/YongshengWin/VpsCT/pull/5) | 分别升级 React DOM 或 React 18 → 19 | 两个 PR 分别造成 React 类型包 18/19 冲突，`npm ci` 报 `ERESOLVE`。原 PR 不合并，后续应把四个关联包放入同一个 React 迁移 PR。 |
-| [#3](https://github.com/YongshengWin/VpsCT/pull/3) | tailwind-merge 2 → 3 | 安装、类型检查与构建通过，原 CI 在许可声明校验处失败。此外，上游明确 v3 对应 Tailwind 4，当前项目使用 Tailwind 3，不能只补许可就合并。保留现有 2.x，随样式迁移统一处理。 |
-| [#4](https://github.com/YongshengWin/VpsCT/pull/4) | Recharts 2 → 3 | 流量图和速率图的 Tooltip formatter 类型不再匹配。原 PR 不合并，需在图表迁移中调整格式化逻辑并验证悬浮提示、堆叠与坐标轴。 |
+| [#1](https://github.com/yanglingjieee/VpsCT/pull/1) | TypeScript 5 → 7、Tailwind 3 → 4 | TypeScript 删除了当前使用的 `baseUrl` 选项，类型检查失败；单独运行 Vite 也因 Tailwind 4 的 PostCSS 接入方式变化而失败。该混合升级不合并，拆为编译工具和样式迁移。 |
+| [#2](https://github.com/yanglingjieee/VpsCT/pull/2)、[#5](https://github.com/yanglingjieee/VpsCT/pull/5) | 分别升级 React DOM 或 React 18 → 19 | 两个 PR 分别造成 React 类型包 18/19 冲突，`npm ci` 报 `ERESOLVE`。原 PR 不合并，后续应把四个关联包放入同一个 React 迁移 PR。 |
+| [#3](https://github.com/yanglingjieee/VpsCT/pull/3) | tailwind-merge 2 → 3 | 安装、类型检查与构建通过，原 CI 在许可声明校验处失败。此外，上游明确 v3 对应 Tailwind 4，当前项目使用 Tailwind 3，不能只补许可就合并。保留现有 2.x，随样式迁移统一处理。 |
+| [#4](https://github.com/yanglingjieee/VpsCT/pull/4) | Recharts 2 → 3 | 流量图和速率图的 Tooltip formatter 类型不再匹配。原 PR 不合并，需在图表迁移中调整格式化逻辑并验证悬浮提示、堆叠与坐标轴。 |
 
 核验方式与基线结果：
 
@@ -36,5 +36,5 @@
 
 ## 4. 首轮分组检查
 
-1. [#7](https://github.com/YongshengWin/VpsCT/pull/7) 提出 Go 间接依赖 `modernc.org/libc` 从 `v1.75.6` 升到 `v1.75.7`。补齐模块校验和与第三方声明，保留许可证原文，并要求数据库测试、完整 CI 和安装验证通过后合并。该更新进入主分支，不替换 `v0.1.0` 已发布附件。
-2. [#8](https://github.com/YongshengWin/VpsCT/pull/8) 提出 `lucide-react` 从 `0.447.0` 升到 `0.577.0`。虽然被归类为小版本，它超出了当前 `^0.447.0` 范围；本次暂缓，后续单独检查图标和页面。前端常规更新因此限制为补丁，安全更新仍不受此限制。
+1. [#7](https://github.com/yanglingjieee/VpsCT/pull/7) 提出 Go 间接依赖 `modernc.org/libc` 从 `v1.75.6` 升到 `v1.75.7`。补齐模块校验和与第三方声明，保留许可证原文，并要求数据库测试、完整 CI 和安装验证通过后合并。该更新进入主分支，不替换 `v0.1.0` 已发布附件。
+2. [#8](https://github.com/yanglingjieee/VpsCT/pull/8) 提出 `lucide-react` 从 `0.447.0` 升到 `0.577.0`。虽然被归类为小版本，它超出了当前 `^0.447.0` 范围；本次暂缓，后续单独检查图标和页面。前端常规更新因此限制为补丁，安全更新仍不受此限制。

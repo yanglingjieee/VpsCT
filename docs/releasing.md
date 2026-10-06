@@ -39,7 +39,7 @@ bash scripts/check.sh
 在项目根目录执行，替换实际仓库归属和版本：
 
 ```bash
-make release VERSION=v0.1.6 REPOSITORY=YongshengWin/VpsCT
+make release VERSION=v0.1.6 REPOSITORY=yanglingjieee/VpsCT
 ```
 
 产物位于 `release/v0.1.6/`：

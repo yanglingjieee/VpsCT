@@ -1,8 +1,19 @@
-# VpsCT
+# 土豆饼的家
 
-面向个人和小团队的自托管服务器管理面板。
+自用的机场 + 探针面板，基于 [VpsCT](https://github.com/YongshengWin/VpsCT) v0.1.6 修改。
 
-将多台 VPS 接入同一个面板，集中查看运行状态和流量用量、维护服务配置，并按流量配额和有效期分享服务器资源。
+把自己的几台 VPS 接进来，一处看它们的状态和流量；在上面建入站和线路，分给不同的人用，每人各自计量、各自限额，一个专属链接在各种客户端里一键配置。
+
+| 页面 | 做什么 |
+|---|---|
+| 总览 | 服务器是否在线、负载、流量；各用户本期用量；需要处理的提醒 |
+| 服务器 | 接入、监控和维护机器。只做监控不建入站也可以 |
+| 节点 | **入站**（服务器上的监听端口）、**线路**（直连或经入口机中转到落地机，给用户用的）、外部节点 |
+| 用户 | 每人自己的凭据、限额和专属链接；可以只给节点（拼车） |
+| 规则 | 一套规则为各种客户端各写一份；内置「无规则」 |
+| 连接日志 | 按用户记录来源 IP、线路和访问目标 |
+
+与上游的差异和升级注意事项见 [变更记录](CHANGELOG.md)。下面的安装与维护说明沿用上游文档，命令已指向本仓库的发行版本；其中提到的分享、模板、出口、转发等页面在本版界面中已移除。
 
 ## 1. 开始使用
 
@@ -19,7 +30,7 @@
 在控制端服务器下载官方安装器并执行，无需准备发布签名密钥：
 
 ```bash
-curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/YongshengWin/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
+curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/yanglingjieee/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
 sudo bash install-vpsct.sh --domain panel.example.com
 ```
 
@@ -30,7 +41,7 @@ sudo bash install-vpsct.sh --domain panel.example.com
 **使用已有 HTTPS 入口或其他端口**：先将入口转发到本机 `127.0.0.1:8080`，再执行以下命令。这里以 `8443` 为例；使用标准 HTTPS 端口时去掉 `:8443`。这种方式无需为安装器腾出 80、443 端口。
 
 ```bash
-curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/YongshengWin/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
+curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/yanglingjieee/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
 sudo bash install-vpsct.sh --site-url https://panel.example.com:8443 --no-proxy
 ```
 
@@ -97,7 +108,7 @@ agent 主动连接控制端，因此 VPS 无需额外开放管理端口。服务
 对于使用安装器部署的控制端，在**控制端服务器**执行以下命令，更新到最新正式版：
 
 ```bash
-curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/YongshengWin/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
+curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/yanglingjieee/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
 sudo bash install-vpsct.sh --update --auto-rollback
 ```
 
@@ -164,7 +175,7 @@ sudo bash /usr/local/libexec/ctlvps-agent-uninstall.sh --agent --dry-run
 | 查看完整系统的安全边界与实施计划 | [系统安全设计](docs/security-design.md)与[迁移说明](docs/security-migration.md) |
 | 维护和发布版本 | [发布流程](docs/releasing.md) |
 
-欢迎通过 [Issue](https://github.com/YongshengWin/VpsCT/issues) 和 [PR](https://github.com/YongshengWin/VpsCT/pulls) 提交问题、改进建议或代码，参与前请阅读 [社区约定](CODE_OF_CONDUCT.md)。
+欢迎通过 [Issue](https://github.com/yanglingjieee/VpsCT/issues) 和 [PR](https://github.com/yanglingjieee/VpsCT/pulls) 提交问题、改进建议或代码，参与前请阅读 [社区约定](CODE_OF_CONDUCT.md)。
 
 ## 6. 许可证
 

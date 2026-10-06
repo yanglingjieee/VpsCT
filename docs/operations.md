@@ -15,7 +15,7 @@ v0.1.3 默认使用官方 HTTPS 下载与 SHA256 校验，无需准备发布签�
 
 三种方式的升级和恢复步骤不同。安装器会拒绝覆盖现有手动安装或未知数据目录。
 
-以下安装与更新命令使用官方仓库 `YongshengWin/VpsCT` 的最新正式版入口，无需手动填写版本号。需要指定版本时，使用对应 [Release](https://github.com/YongshengWin/VpsCT/releases) 提供的命令。
+以下安装与更新命令使用官方仓库 `yanglingjieee/VpsCT` 的最新正式版入口，无需手动填写版本号。需要指定版本时，使用对应 [Release](https://github.com/yanglingjieee/VpsCT/releases) 提供的命令。
 
 ## 2. 使用安装器部署
 
@@ -26,12 +26,12 @@ v0.1.3 默认使用官方 HTTPS 下载与 SHA256 校验，无需准备发布签�
 先下载最新官方安装器，再选择 HTTPS 配置方式：
 
 ```bash
-curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/YongshengWin/VpsCT/releases/latest/download/install.sh -o install.sh
+curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/yanglingjieee/VpsCT/releases/latest/download/install.sh -o install.sh
 ```
 
 `latest` 入口会取得当时最新正式版的脚本。脚本随后下载该版本的程序及校验文件，确保本次安装使用同一版本。保存到本地的脚本不会自行变成新版，之后更新时应重新下载。
 
-指定版本是可选用法。例如安装 `v0.1.0`，可把下载地址中的 `latest/download` 换成 `download/v0.1.0`。若使用源码目录中的脚本，首次安装需额外传入 `--repo YongshengWin/VpsCT`，未指定 `--version` 时会解析最新正式版；也可用 `--version v0.1.0` 指定版本。
+指定版本是可选用法。例如安装 `v0.1.0`，可把下载地址中的 `latest/download` 换成 `download/v0.1.0`。若使用源码目录中的脚本，首次安装需额外传入 `--repo yanglingjieee/VpsCT`，未指定 `--version` 时会解析最新正式版；也可用 `--version v0.1.0` 指定版本。
 
 ### 2.2 自动配置 HTTPS
 
@@ -267,7 +267,7 @@ VpsCT 只使用官方 sing-box 发行包，不构建或分发修改版。网卡�
 重新下载最新安装器后升级：
 
 ```bash
-curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/YongshengWin/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
+curl -fLsS --proto '=https' --proto-redir '=https' https://github.com/yanglingjieee/VpsCT/releases/latest/download/install.sh -o install-vpsct.sh &&
 sudo bash install-vpsct.sh --update --auto-rollback
 ```
 
@@ -404,7 +404,7 @@ sudo bash /usr/local/libexec/ctlvps-agent-uninstall.sh --agent --purge
 
 ```bash
 vpsct_uninstaller="$(mktemp)" &&
-curl -fLsS --proto '=https' --proto-redir '=https' --max-time 120 https://github.com/YongshengWin/VpsCT/releases/latest/download/uninstall.sh -o "$vpsct_uninstaller" &&
+curl -fLsS --proto '=https' --proto-redir '=https' --max-time 120 https://github.com/yanglingjieee/VpsCT/releases/latest/download/uninstall.sh -o "$vpsct_uninstaller" &&
 sudo bash "$vpsct_uninstaller" --agent --purge --dry-run
 # 预览无误后，在同一终端执行
 sudo bash "$vpsct_uninstaller" --agent --purge

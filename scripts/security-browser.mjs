@@ -36,7 +36,7 @@ try{
  const missing=await page.evaluate(async()=>{const r=await fetch('/api/v1/auth/profile',{method:'PUT',headers:{'Content-Type':'application/json'},body:'{"nickname":"tampered"}'});return r.status});assert.equal(missing,403);
  const csp=await page.evaluate(()=>new Promise(resolve=>{window.__injected=false;const el=document.createElement('script');el.textContent='window.__injected=true';document.body.append(el);setTimeout(()=>resolve(window.__injected),100)}));assert.equal(csp,false);
  const after=await inspect();assert.equal(after.servers.length,before.servers.length);assert.equal(after.me.nickname,before.me.nickname);assert.equal(violations.length,0);
- await page.goto(origin+'/servers/'+after.servers[0].id);await page.getByRole('button',{name:'部署节点',exact:true}).first().click();const dialog=page.getByRole('dialog');await dialog.getByRole('combobox').nth(0).click();await page.getByRole('option',{name:'Trojan',exact:true}).click();await dialog.getByRole('combobox').nth(1).click();await page.getByRole('option',{name:'外部证书',exact:true}).click();await dialog.getByText('外部证书 ID',{exact:true}).locator('..').locator('input').fill('fixture-cert');await dialog.getByRole('button',{name:'部署',exact:true}).click();await dialog.waitFor({state:'hidden'});
+ await page.goto(origin+'/servers/'+after.servers[0].id);await page.goto(origin+'/nodes');await page.getByRole('button',{name:'新建入站',exact:true}).first().click();const dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'创建',exact:true}).click();await dialog.waitFor({state:'hidden'});await page.getByText('443',{exact:true}).first().waitFor();await page.goto(origin+'/servers/'+after.servers[0].id);
  // A manually recovered agent retains failed history without a stale banner.
  const maintenanceURL=`**/api/v1/servers/${after.servers[0].id}/maintenance`;
  const failedJob={id:'fixture-maintenance',role:'agent',action:'update',status:'failed',version:'v0.1.5',message:'fixture download failure',updated_at:new Date().toISOString()};
@@ -54,30 +54,42 @@ try{
  await page.reload();await page.getByRole('status').filter({hasText:'agent 卸载 · 失败'}).waitFor();
  await page.unroute(maintenanceURL);
  console.log('PASS recovered agent hides obsolete update banner, retains history, and preserves offline/outdated/uninstall failures.');
- // Release smoke: exercise the new network navigation against real empty API state.
- await page.goto(origin+'/servers/'+after.servers[0].id+'?tab=routes');
- await page.getByRole('heading',{name:'网站会看到哪台 VPS 的地址？'}).waitFor();
- await page.getByRole('button',{name:/看网卡和流量/}).click();
- await page.getByText('等待多网卡数据',{exact:true}).waitFor();
- await page.getByRole('button',{name:'← 返回节点线路'}).click();
- await page.getByRole('button',{name:/连接已有代理/}).click();
- await page.getByText('还没有接入其他代理',{exact:true}).waitFor();
- await page.getByRole('button',{name:'← 返回节点线路'}).click();
- await page.getByRole('button',{name:/转发固定端口/}).click();
- await page.getByRole('button',{name:'添加转发',exact:true}).click();
- const forwardDialog=page.getByRole('dialog');
- await forwardDialog.getByRole('combobox').first().click();
- for(const label of ['UDP（暂不可启用）','TCP + UDP（暂不可启用）']) {
-  const option=page.getByRole('option',{name:label,exact:true});
-  assert.equal(await option.getAttribute('aria-disabled'),'true');
+ // Release smoke: a line, a user and that user's own page, created through the interface.
+ await page.goto(origin+'/nodes');
+ await page.getByRole('button',{name:'新建线路',exact:true}).click();
+ const lineDialog=page.getByRole('dialog');
+ await lineDialog.getByRole('combobox').nth(1).click();
+ await page.getByRole('option',{name:/safe-browser-fixture/}).first().click();
+ await lineDialog.getByPlaceholder('🇺🇸 洛杉矶').fill('fixture-line');
+ await lineDialog.getByRole('button',{name:'创建',exact:true}).click();
+ await lineDialog.waitFor({state:'hidden'});
+ await page.getByText('fixture-line',{exact:true}).first().waitFor();
+ await page.goto(origin+'/users');
+ await page.getByRole('button',{name:'新建用户',exact:true}).first().click();
+ const userDialog=page.getByRole('dialog');
+ await userDialog.getByPlaceholder('sansan').fill('fixture-user');
+ await userDialog.getByRole('button',{name:'创建',exact:true}).click();
+ await page.getByText('专属链接',{exact:true}).waitFor();
+ await page.getByText('fixture-line',{exact:true}).first().waitFor();
+ const personalPath=new URL((await page.locator('code').first().textContent()).trim()).pathname;
+ assert(/^\/r\/[A-Za-z0-9]{24}$/.test(personalPath),'a user link must be the short personal address');
+ const personal=origin+personalPath;
+ for(const route of ['/','/servers','/nodes','/users','/rules','/connlog']) {
+  await page.setViewportSize({width:390,height:844});
+  await page.goto(origin+route);await page.getByRole('heading').first().waitFor();
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),route+' overflows a phone viewport');
  }
- await page.keyboard.press('Escape');await page.keyboard.press('Escape');
- await page.setViewportSize({width:390,height:844});
- await page.goto(origin+'/servers/'+after.servers[0].id+'?tab=routes');
- await page.getByRole('heading',{name:'网站会看到哪台 VPS 的地址？'}).waitFor();
- assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'network page overflows mobile viewport');
- await page.screenshot({path:'/tmp/ctlvps-network-mobile.png',fullPage:true,animations:'disabled'});
+ // The personal page needs no session: open it in a clean context.
+ const guest=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
+ const guestPage=await guest.newPage();const guestErrors=[];guestPage.on('console',m=>{if(m.type()==='error')guestErrors.push(m.text())});
+ await guestPage.goto(personal);
+ await guestPage.getByRole('heading',{name:'fixture-user'}).waitFor();
+ await guestPage.getByRole('heading',{name:'一键导入'}).waitFor();
+ await guestPage.getByText('fixture-line',{exact:true}).waitFor();
+ assert(await guestPage.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'personal page overflows a phone viewport');
+ assert.equal(guestErrors.filter(e=>/Content Security Policy/i.test(e)).length,0,'personal page violates CSP');
+ await guest.close();
  assert.equal(violations.length,0);
- console.log('PASS release network navigation, empty inventory/egress, disabled UDP forwarding and 390px layout.');
+ console.log('PASS release smoke: line and user created in the interface, six pages fit 390px, personal page opens without a session.');
  await page.screenshot({path:'/tmp/ctlvps-security-browser.png',fullPage:true});console.log('PASS Chromium: UI setup/create, Secure HttpOnly host cookie, same-site/cross-site attacks, CSRF and CSP; no unauthorized mutation.');
 }finally{await browser?.close();child?.kill();await new Promise(r=>front?front.close(r):r());fs.rmSync(dir,{recursive:true,force:true});}

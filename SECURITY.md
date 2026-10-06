@@ -4,7 +4,7 @@
 
 ## 1. 私密报告
 
-请通过 [Security → Report a vulnerability](https://github.com/YongshengWin/VpsCT/security/advisories/new) 提交私密漏洞报告。
+请通过 [Security → Report a vulnerability](https://github.com/yanglingjieee/VpsCT/security/advisories/new) 提交私密漏洞报告。
 
 如果页面没有该入口，请先提交一个只询问私密联系渠道的普通 Issue，不要附上漏洞细节、复现载荷或任何凭据。
 
