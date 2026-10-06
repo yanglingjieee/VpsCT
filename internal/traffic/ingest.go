@@ -285,6 +285,13 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 				}
 				continue
 			}
+			// A member is metered on the far side of the proxy: what the host
+			// receives there is the user's download. Swap so that every node
+			// reports upload/download from the user's point of view.
+			if n.AttachNodeID != nil {
+				rx, txBytes = txBytes, rx
+				pc.Rx, pc.Tx = pc.Tx, pc.Rx
+			}
 			if err = sample(n.ID, pc.Rx, pc.Tx); err != nil {
 				return err
 			}
@@ -296,7 +303,9 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 			if err = add(store.SubjectNode, n.ID, rx, txBytes); err != nil {
 				return err
 			}
-			if n.ShareID != nil {
+			// The landing hop of a relay line repeats bytes already charged at
+			// its entry, so it is recorded per node but not against the quota.
+			if n.ShareID != nil && !n.Uncounted {
 				p := shares[*n.ShareID]
 				if p == nil {
 					p = &ShareDelta{ShareID: *n.ShareID}

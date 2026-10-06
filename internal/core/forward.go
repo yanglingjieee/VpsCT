@@ -158,6 +158,9 @@ func (d *SingBox) BuildResourceConfig(ds *agentproto.DesiredState, nodes []agent
 	}
 	ports := map[int]bool{}
 	for _, n := range nodes {
+		if n.AttachTo != 0 {
+			continue
+		}
 		if ports[n.ListenPort] {
 			return nil, errors.New("共享进程监听端口冲突")
 		}

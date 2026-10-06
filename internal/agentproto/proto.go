@@ -227,10 +227,13 @@ type NodeSpec struct {
 	Core            string                         `json:"core"` // singbox | snell
 	ListenPort      int                            `json:"listen_port"`
 	ShareID         *int64                         `json:"share_id,omitempty"`
-	Blocked         bool                           `json:"blocked"`
-	ConnlogEnabled  bool                           `json:"connlog_enabled"`
-	Params          map[string]any                 `json:"params"` // server-side protocol params
-	Cert            *CertSpec                      `json:"cert,omitempty"`
+	// AttachTo > 0 makes this spec one more credential on that node's listener.
+	// It owns no port; accounting and blocking use its own NodeID.
+	AttachTo       int64          `json:"attach_to,omitempty"`
+	Blocked        bool           `json:"blocked"`
+	ConnlogEnabled bool           `json:"connlog_enabled"`
+	Params         map[string]any `json:"params"` // server-side protocol params
+	Cert           *CertSpec      `json:"cert,omitempty"`
 }
 
 // CoreVersion pins a downloadable core binary.
@@ -256,6 +259,7 @@ type DesiredState struct {
 	PublicHost              string                 `json:"public_host"`
 	CoreMode                string                 `json:"core_mode"`
 	IPv4Only                bool                   `json:"ipv4_only"`
+	PreferIPv6              bool                   `json:"prefer_ipv6,omitempty"`
 	Nodes                   []NodeSpec             `json:"nodes"`
 	Forwards                []ForwardSpec          `json:"forwards,omitempty"`
 	Versions                map[string]CoreVersion `json:"versions"`

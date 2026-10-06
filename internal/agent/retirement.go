@@ -18,12 +18,13 @@ type MeterRule struct {
 	NodeID  int64  `json:"node_id"`
 	Port    int    `json:"port"`
 	Core    string `json:"core"`
+	Attach  int64  `json:"attach,omitempty"`
 	Blocked bool   `json:"blocked,omitempty"`
 	Retired bool   `json:"retired,omitempty"`
 }
 
 func (r MeterRule) spec() agentproto.NodeSpec {
-	return agentproto.NodeSpec{NodeID: r.NodeID, ListenPort: r.Port, Core: r.Core, Blocked: r.Blocked, Retired: r.Retired}
+	return agentproto.NodeSpec{NodeID: r.NodeID, ListenPort: r.Port, Core: r.Core, AttachTo: r.Attach, Blocked: r.Blocked, Retired: r.Retired}
 }
 
 type Retirement struct {
@@ -147,6 +148,7 @@ func (a *Agent) beginRetirement(ctx context.Context) error {
 		if live, ok := active[n.NodeID]; ok {
 			r.Port = live.ListenPort
 			r.Core = live.Core
+			r.Attach = live.AttachTo
 			r.Blocked = live.Blocked
 			r.Retired = false
 		}

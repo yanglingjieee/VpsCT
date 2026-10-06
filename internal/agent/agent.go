@@ -753,15 +753,21 @@ func (a *Agent) convergeDesired(ctx context.Context, force bool, local *agentpro
 	for i := range ds.Forwards {
 		ds.Forwards[i].ForwardGrants = networkconfig.ForwardGrantsFor(policy.ForwardGrants, ds.Forwards[i].ForwardID, ds.Forwards[i].Config.EgressProfileID)
 	}
+	privateNodes := map[int64]bool{}
+	for _, id := range policy.PrivateNodes {
+		privateNodes[id] = true
+	}
 	for i := range ds.Nodes {
 		if network := ds.Nodes[i].Network; network != nil && network.HasTransport() {
 			ds.Nodes[i].TransportGrants = networkconfig.TransportGrantsFor(policy.TransportGrants, ds.Nodes[i].NodeID, network.Policy.EgressProfileID)
 		}
-		for _, id := range policy.PrivateNodes {
-			if ds.Nodes[i].NodeID == id {
-				ds.Nodes[i].AllowPrivate = true
-			}
+		// A member runs inside its parent's process, so it has exactly the
+		// parent's permission and can never be granted its own.
+		owner := ds.Nodes[i].NodeID
+		if ds.Nodes[i].AttachTo != 0 {
+			owner = ds.Nodes[i].AttachTo
 		}
+		ds.Nodes[i].AllowPrivate = privateNodes[owner]
 		c := ds.Nodes[i].Cert
 		if c != nil && c.Mode == "acme" {
 			allowed := policy.ChecksumOnly && len(policy.ACMEDomains) == 0

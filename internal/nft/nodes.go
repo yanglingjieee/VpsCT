@@ -43,15 +43,18 @@ func NodeRules(nodes []agentproto.NodeSpec) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if (!n.Retired && (n.ListenPort < 1 || n.ListenPort > 65535 || ports[n.ListenPort])) || ids[n.NodeID] {
+		// A member has no port: clients reach it through its parent's listener
+		// and only its origin connections carry its mark.
+		listener := !n.Retired && n.AttachTo == 0
+		if (listener && (n.ListenPort < 1 || n.ListenPort > 65535 || ports[n.ListenPort])) || ids[n.NodeID] {
 			return "", fmt.Errorf("duplicate/invalid accounting identity")
 		}
 		ids[n.NodeID] = true
-		if !n.Retired {
+		if listener {
 			ports[n.ListenPort] = true
 		}
 		fmt.Fprintf(&b, "add counter inet %s n%d_rx\nadd counter inet %s n%d_tx\n", NodeTable, n.NodeID, NodeTable, n.NodeID)
-		if n.Retired {
+		if !listener {
 			continue
 		}
 		fmt.Fprintf(&b, "add rule inet %s input iifname != \"lo\" ct direction original meta l4proto { tcp, udp } th dport %d ct mark & 0x%08x != 0x%08x ct mark set 0x%08x\n", NodeTable, n.ListenPort, MarkMask, MarkPrefix, mark)

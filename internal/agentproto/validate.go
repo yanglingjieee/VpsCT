@@ -53,7 +53,28 @@ func ValidateDesired(d *DesiredState, serverID, lastRevision int64, lastHash str
 	}
 	ids := map[int64]bool{}
 	ports := map[int]bool{}
+	// Members share their parent's listener, so the parent must be a plain
+	// VLESS inbound: one user list, default egress, no port of the member's own.
+	shareable := map[int64]bool{}
 	for _, n := range d.Nodes {
+		if n.AttachTo == 0 && n.Core == "singbox" && n.Protocol == "vless" && n.Network == nil {
+			shareable[n.NodeID] = true
+		}
+	}
+	for _, n := range d.Nodes {
+		if n.AttachTo != 0 {
+			if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort != 0 || !shareable[n.AttachTo] || n.Core != "singbox" || n.Protocol != "vless" || n.Network != nil || n.Cert != nil {
+				return errors.New("成员节点标识或所属入口无效")
+			}
+			if id, _ := n.Params["uuid"].(string); len(id) != 36 {
+				return errors.New("成员节点缺少凭据")
+			}
+			if err := ValidateParams(n.Params, 0); err != nil {
+				return err
+			}
+			ids[n.NodeID] = true
+			continue
+		}
 		if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort < 1 || n.ListenPort > 65535 || ports[n.ListenPort] {
 			return errors.New("节点标识或端口无效")
 		}

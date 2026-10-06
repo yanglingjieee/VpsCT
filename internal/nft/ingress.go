@@ -54,7 +54,7 @@ func ingressResourceRules(snapshot []byte, nodes []agentproto.NodeSpec, forwards
 	}
 	ports := map[string]map[int]bool{"tcp": {}, "udp": {}}
 	for _, n := range nodes {
-		if n.Blocked || n.Retired {
+		if n.Blocked || n.Retired || n.AttachTo != 0 {
 			continue
 		}
 		if n.ListenPort < 1 || n.ListenPort > 65535 {

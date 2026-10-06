@@ -139,11 +139,28 @@ func str(m map[string]any, k string) string {
 // InboundTag is the tag used for a node (parsed back by conntail).
 func InboundTag(nodeID int64) string { return fmt.Sprintf("node-%d", nodeID) }
 
+// MemberUser is the inbound user name of a credential; route rules select a
+// member's outbound by it.
+func MemberUser(nodeID int64) string { return fmt.Sprintf("n%d", nodeID) }
+
 // BuildConfig renders the sing-box server configuration for nodes.
 func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.NodeSpec) (map[string]any, error) {
 	inbounds := []any{}
-	sorted := append([]agentproto.NodeSpec(nil), nodes...)
+	// Members are extra credentials on their parent's inbound. Each keeps its
+	// own marked outbound, so traffic is metered and blocked per member.
+	members := map[int64][]agentproto.NodeSpec{}
+	sorted := make([]agentproto.NodeSpec, 0, len(nodes))
+	for _, n := range nodes {
+		if n.AttachTo != 0 {
+			members[n.AttachTo] = append(members[n.AttachTo], n)
+		} else {
+			sorted = append(sorted, n)
+		}
+	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].NodeID < sorted[j].NodeID })
+	for id := range members {
+		sort.Slice(members[id], func(i, j int) bool { return members[id][i].NodeID < members[id][j].NodeID })
+	}
 	logLevel := "warn"
 	outbounds := []any{}
 	endpoints := []any{}
@@ -245,6 +262,23 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 		} else {
 			outbounds = append(outbounds, outbound)
 		}
+		users := []any{}
+		for _, m := range members[n.NodeID] {
+			if m.Blocked {
+				continue // unknown credential: the handshake is refused
+			}
+			if n.Protocol != "vless" || n.Network != nil {
+				return nil, fmt.Errorf("node %d: 该入口不支持多人共用", n.NodeID)
+			}
+			memberMark, err := nft.NodeMark(m.NodeID)
+			if err != nil {
+				return nil, err
+			}
+			memberOut := fmt.Sprintf("node-%d-direct", m.NodeID)
+			outbounds = append(outbounds, map[string]any{"type": "direct", "tag": memberOut, "routing_mark": memberMark})
+			rules = append(rules, map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "auth_user": []string{MemberUser(m.NodeID)}, "action": "route", "outbound": memberOut})
+			users = append(users, map[string]any{"name": MemberUser(m.NodeID), "uuid": str(m.Params, "uuid"), "flow": firstNonEmpty(str(m.Params, "flow"), "xtls-rprx-vision")})
+		}
 		rules = append(rules, map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "action": "route", "outbound": outTag})
 		if n.ConnlogEnabled {
 			logLevel = "info"
@@ -267,7 +301,7 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			continue
 		case "vless":
 			in["type"] = "vless"
-			in["users"] = []any{map[string]any{"uuid": str(p, "uuid"), "flow": firstNonEmpty(str(p, "flow"), "xtls-rprx-vision")}}
+			in["users"] = append([]any{map[string]any{"name": MemberUser(n.NodeID), "uuid": str(p, "uuid"), "flow": firstNonEmpty(str(p, "flow"), "xtls-rprx-vision")}}, users...)
 			hsPort := 443
 			if v, ok := p["handshake_port"].(float64); ok && v > 0 {
 				hsPort = int(v)
@@ -335,6 +369,8 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 	strategy := "prefer_ipv4"
 	if ds.IPv4Only {
 		strategy = "ipv4_only"
+	} else if ds.PreferIPv6 {
+		strategy = "prefer_ipv6"
 	}
 	cfg := map[string]any{
 		"log":       map[string]any{"level": logLevel, "timestamp": true, "output": d.logPath()},
@@ -382,12 +418,16 @@ func (d *SingBox) Apply(ctx context.Context, ds *agentproto.DesiredState, nodes 
 func (d *SingBox) ApplyResources(ctx context.Context, ds *agentproto.DesiredState, nodes []agentproto.NodeSpec, forwards []agentproto.ForwardSpec) (changed bool, applyErr error) {
 	groups := map[string][]agentproto.NodeSpec{"public": {}, "private": {}}
 	acme := false
+	private := map[int64]bool{}
+	for _, n := range nodes {
+		private[n.NodeID] = n.AllowPrivate
+	}
 	for _, n := range nodes {
 		if n.Retired {
 			continue
 		}
 		profile := "public"
-		if n.AllowPrivate {
+		if n.AllowPrivate || (n.AttachTo != 0 && private[n.AttachTo]) {
 			profile = "private"
 		}
 		groups[profile] = append(groups[profile], n)
