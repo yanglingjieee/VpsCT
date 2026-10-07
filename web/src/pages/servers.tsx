@@ -4,16 +4,16 @@ import { MaintenancePanel } from "@/components/maintenance";
 import { ServerActions } from "@/components/server-actions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Copy, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
-import { get, post, put } from "@/lib/api";
+import { Copy, Gauge, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
+import { del, get, post, put } from "@/lib/api";
 import type { Server, Node, Series } from "@/lib/types";
-import { fmtBytes, fmtAgo, fmtDuration, fmtRate, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, fmtDate } from "@/lib/utils";
+import { fmtBytes, fmtAgo, fmtDuration, fmtRate, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, BILLING_LABELS, fmtDate, fmtPeriodDay, fmtResetIn } from "@/lib/utils";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Confirm, Dialog, Empty, Field, Input, PageHeader, Progress, Select, Spinner, Switch, Table, Td, Th, Tr, Textarea, Pre, Tabs } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { ResetDayInput } from "@/components/datetime-picker";
 import { TrafficBars, RateArea } from "@/components/charts";
-import { nicIO, TrafficIO } from "@/components/traffic-ways";
-import { ServerCard } from "@/components/server-card";
+import { TrafficIO } from "@/components/traffic-ways";
+import { ServerCard, sortServers } from "@/components/server-card";
 
 // ---------- shared form ----------
 interface ServerForm {
@@ -24,7 +24,7 @@ interface ServerForm {
   notes: string;
   quota_gb: string;
   quota_reset_day: string;
-  quota_billing: string;
+  quota_billing: Server["quota_billing"];
   core_mode: string;
   ip_pref: "ipv4" | "ipv6" | "ipv4_only";
   ingress_ack: boolean;
@@ -78,6 +78,12 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
         <Field label="公网地址" hint="留空则使用 agent 上报的 IP" className="sm:col-span-2"><Input value={f.public_host} onChange={(e) => set("public_host", e.target.value)} placeholder="1.2.3.4 或 hk.example.com" /></Field>
         <Field label="月流量配额 (GB)" hint="0 为不限"><Input type="number" min={0} step="0.1" value={f.quota_gb} onChange={(e) => set("quota_gb", e.target.value)} /></Field>
         <Field label="重置日" hint="1–28 固定那天；29/30/31 都是每月最后一天。不选则按近 30 天滚动。"><ResetDayInput value={f.quota_reset_day} onChange={(v) => set("quota_reset_day", v)} /></Field>
+        <Field label="流量怎么算" hint="照服务商的算法选。改这一项或重置日，本期的校正会作废。">
+          <Select value={f.quota_billing} onChange={(e) => set("quota_billing", e.target.value as ServerForm["quota_billing"])}>
+            <option value="dual">双向：入站 + 出站</option>
+            <option value="out">只算出站</option>
+          </Select>
+        </Field>
         <Field label="出口 IP 偏好" hint="目标同时有 IPv4 和 IPv6 时用哪个">
           <Select value={f.ip_pref} onChange={(e) => set("ip_pref", e.target.value as ServerForm["ip_pref"])}>
             <option value="ipv4">优先 IPv4</option>
@@ -131,7 +137,7 @@ export function ServersPage() {
       ) : !q.data?.length ? (
         <Empty title="还没有服务器" description="添加一台机器，然后用生成的命令安装 agent。" action={<Button onClick={() => setCreate(true)}>添加服务器</Button>} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{q.data.map((s) => <ServerCard key={s.id} s={s} />)}</div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{sortServers(q.data).map((s) => <ServerCard key={s.id} s={s} />)}</div>
       )}
       <ServerDialog open={create} onClose={() => setCreate(false)} />
     </div>
@@ -171,6 +177,7 @@ export function ServerDetailPage() {
   const samples = useQuery({ queryKey: ["servers", id, "samples"], queryFn: () => get<{ ts: string; rx_rate: number; tx_rate: number }[]>(`/api/v1/servers/${id}/samples?hours=24`), refetchInterval: 60000 });
   const desired = useQuery({ queryKey: ["servers", id, "desired"], queryFn: () => get<Revision[]>(`/api/v1/servers/${id}/desired?limit=5`) });
   const [edit, setEdit] = React.useState(false);
+  const [calibrate, setCalibrate] = React.useState(false);
   const [enroll, setEnroll] = React.useState<{ token: string; install_command: string; expires_at: string } | null>(null);
   const [confirmDel, setConfirmDel] = React.useState(false);
   const [confirmReset, setConfirmReset] = React.useState(false);
@@ -280,14 +287,24 @@ export function ServerDetailPage() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>本期配额</CardTitle></CardHeader>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>{s.usage?.next_reset ? "本期流量" : "近 30 天流量"}</CardTitle>
+            {s.usage?.next_reset && <Button size="sm" variant="outline" onClick={() => setCalibrate(true)}><Gauge className="h-4 w-4" /> 校正</Button>}
+          </CardHeader>
           <CardContent>
             {s.usage && (
               <>
-                <p className="text-2xl font-semibold tabular-nums">{fmtBytes(s.usage.total ?? nicIO(s.usage.up, s.usage.down).total)}</p>
-                <p className="text-xs text-muted-foreground">本期汇总 · {s.quota_bytes > 0 ? `配额 ${fmtBytes(s.usage.billed)} / ${fmtBytes(s.quota_bytes)} · ${s.usage.percent.toFixed(1)}%` : "未设置配额"} · 自 {fmtDate(s.usage.period_start, false)}</p>
+                <p className="text-2xl font-semibold tabular-nums">{fmtBytes(s.usage.billed)}{s.quota_bytes > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground">/ {fmtBytes(s.quota_bytes, 0)} · {s.usage.percent.toFixed(1)}%</span>}</p>
                 <Progress className="mt-3" value={s.quota_bytes > 0 ? s.usage.percent : 0} />
+                <dl className="mt-4 space-y-1.5 text-xs text-muted-foreground">
+                  <div className="flex justify-between gap-3"><dt>怎么算</dt><dd>{BILLING_LABELS[s.usage.billing] ?? s.usage.billing}{s.quota_bytes > 0 ? "" : " · 未设配额"}</dd></div>
+                  {s.usage.next_reset
+                    ? <div className="flex justify-between gap-3"><dt>本期</dt><dd className="text-right">{fmtPeriodDay(s.usage.period_start)} – {fmtPeriodDay(s.usage.next_reset)} · {fmtResetIn(s.usage.next_reset)}</dd></div>
+                    : <div className="flex justify-between gap-3"><dt>周期</dt><dd>没有重置日，按近 30 天滚动</dd></div>}
+                  {s.usage.adjust !== 0 && <div className="flex justify-between gap-3"><dt>其中校正</dt><dd className="text-right tabular-nums">{s.usage.adjust > 0 ? "+" : "−"}{fmtBytes(Math.abs(s.usage.adjust))} · 面板自己计到 {fmtBytes(s.usage.measured)}</dd></div>}
+                </dl>
                 <TrafficIO className="mt-4" inbound={s.usage.inbound ?? s.usage.up} outbound={s.usage.outbound ?? s.usage.down} />
+                {s.usage.adjust !== 0 && <p className="mt-1.5 text-xs text-muted-foreground">上面三格是面板自己计到的，不含校正。</p>}
               </>
             )}
             <dl className="mt-4 space-y-1.5 text-xs text-muted-foreground">
@@ -404,6 +421,7 @@ export function ServerDetailPage() {
       )}
 
       <ServerDialog open={edit} onClose={() => setEdit(false)} server={s} />
+      <CalibrateDialog open={calibrate} onClose={() => setCalibrate(false)} server={s} />
       <Dialog open={!!enroll} onClose={() => setEnroll(null)} title="安装 agent" description="先从独立可信发行渠道安装验证器、安装脚本和本机策略，再以 root 执行以下命令。令牌 15 分钟有效，仅可使用一次。">
         {enroll && (
           <div className="space-y-3">
@@ -415,6 +433,39 @@ export function ServerDetailPage() {
       </Dialog>
       <Confirm open={confirmReset} onClose={() => setConfirmReset(false)} onConfirm={() => resetTok.mutate()} destructive title="吊销 agent 令牌？" description="agent 将无法继续通信，需要重新生成安装命令并注册。" />
     </div>
+  );
+}
+
+// The panel only counts from the day a server joins it. Entering what the
+// host says has been used brings the running period in line with the bill.
+function CalibrateDialog({ open, onClose, server }: { open: boolean; onClose: () => void; server: Server }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const u = server.usage;
+  const [gb, setGb] = React.useState("");
+  React.useEffect(() => setGb(u ? bytesToGb(u.billed) : ""), [open]);
+  const done = (text: string) => (s: Server) => { qc.setQueryData(["servers", String(server.id)], s); qc.invalidateQueries({ queryKey: ["servers"] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); toast.success(text); onClose(); };
+  const save = useMutation({ mutationFn: () => put<Server>(`/api/v1/servers/${server.id}/usage`, { used_bytes: gbToBytes(gb) }), onSuccess: done("已校正"), onError: (e) => toast.fromError(e) });
+  const clear = useMutation({ mutationFn: () => del<Server>(`/api/v1/servers/${server.id}/usage`), onSuccess: done("已撤销校正"), onError: (e) => toast.fromError(e) });
+  const valid = gb.trim() !== "" && Number.isFinite(Number(gb)) && Number(gb) >= 0;
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="校正本期已用流量"
+      description="填服务商后台（或原来的探针）现在显示的本期已用流量。面板从这个数接着往下计，到下次重置自动归零。"
+      footer={
+        <>
+          {u && u.adjust !== 0 && <Button variant="outline" className="mr-auto" onClick={() => clear.mutate()} loading={clear.isPending}>撤销校正</Button>}
+          <Button variant="outline" onClick={onClose}>取消</Button>
+          <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!valid}>保存</Button>
+        </>
+      }
+    >
+      <Field label="本期已用 (GB)" hint={`这台服务器的算法是「${BILLING_LABELS[u?.billing ?? "dual"]}」，填同一种算法下的数。面板自己计到的是 ${fmtBytes(u?.measured)}。`}>
+        <Input type="number" min={0} step="0.01" value={gb} onChange={(e) => setGb(e.target.value)} autoFocus />
+      </Field>
+    </Dialog>
   );
 }
 

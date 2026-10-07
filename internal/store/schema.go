@@ -718,4 +718,14 @@ ALTER TABLE sessions ADD COLUMN security_version INTEGER NOT NULL DEFAULT 0;`,
 	// v32: a landing whose forwarded UDP port loses packets takes relayed
 	// UDP inside the relay's TCP connection instead.
 	`ALTER TABLE servers ADD COLUMN udp_over_tcp INTEGER NOT NULL DEFAULT 0 CHECK(udp_over_tcp IN (0,1));`,
+	// v33: a server's usage in its current period is a running count, so the
+	// period can start at midnight in the panel's timezone and the count can
+	// be corrected to what the host reports.
+	`CREATE TABLE server_usage (
+  server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+  period_start TEXT NOT NULL,
+  rx INTEGER NOT NULL DEFAULT 0,
+  tx INTEGER NOT NULL DEFAULT 0,
+  adjust INTEGER NOT NULL DEFAULT 0
+);`,
 }

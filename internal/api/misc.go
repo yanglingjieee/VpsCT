@@ -182,7 +182,7 @@ var editableSettings = map[string]bool{
 	domain.SettingSiteName: true, domain.SettingSiteURL: true, domain.SettingShortLinks: true, domain.SettingUserinfoDefault: true,
 	domain.SettingTelegramToken: true, domain.SettingTelegramChatID: true, domain.SettingTelegramDaily: true, domain.SettingTelegramHour: true,
 	domain.SettingConnlogRetention: true, domain.SettingAggRetention: true, domain.SettingConnlogSelf: true, domain.SettingSampleRetention: true, domain.SettingHourlyRetention: true,
-	domain.SettingAccessRetention: true, domain.SettingAgentOfflineSec: true, domain.SettingQuotaAlertPct: true,
+	domain.SettingAccessRetention: true, domain.SettingAgentOfflineSec: true, domain.SettingQuotaAlertPct: true, domain.SettingQuotaTimezone: true,
 	domain.SettingSingBoxVersion: true, domain.SettingSnellVersion: true, domain.SettingMitaVersion: true, "core.mita_sha256": true, domain.SettingRateLimitPerMin: true,
 	"core.singbox_sha256": true, "core.snell_sha256": true, "quota.action": true, "site.default_template_id": true,
 	domain.SettingDefaultRuleset: true,
@@ -194,7 +194,7 @@ var SettingDefaults = map[string]string{
 	domain.SettingTelegramDaily: "0", domain.SettingTelegramHour: "9",
 	domain.SettingConnlogRetention: "7", domain.SettingAggRetention: "90", domain.SettingConnlogSelf: "0", domain.SettingSampleRetention: "48", domain.SettingHourlyRetention: "14",
 	domain.SettingAccessRetention: "30", domain.SettingAgentOfflineSec: "120", domain.SettingQuotaAlertPct: "80",
-	domain.SettingRateLimitPerMin: "60", "quota.action": "alert",
+	domain.SettingRateLimitPerMin: "60", "quota.action": "alert", domain.SettingQuotaTimezone: "UTC",
 }
 
 func (a *API) coreVersions(w http.ResponseWriter, r *http.Request) error {
@@ -244,9 +244,18 @@ func (a *API) putSettings(w http.ResponseWriter, r *http.Request) error {
 			}
 			v = token
 		}
+		if k == domain.SettingQuotaTimezone {
+			if v == "" {
+				v = "UTC"
+			}
+			if _, err := time.LoadLocation(v); err != nil {
+				return httpx.BadRequest("不认识这个时区：填 IANA 时区名，例如 Asia/Shanghai")
+			}
+		}
 		values[k] = v
 		changed = append(changed, k)
 	}
+	zone := a.Store.Location().String()
 	if chat, ok := values[domain.SettingTelegramChatID]; ok {
 		token, saving := values[domain.SettingTelegramToken]
 		if !saving {
@@ -266,6 +275,11 @@ func (a *API) putSettings(w http.ResponseWriter, r *http.Request) error {
 		if k == domain.SettingSingBoxVersion || k == domain.SettingSnellVersion || k == domain.SettingMitaVersion || k == "core.mita_sha256" || k == "core.singbox_sha256" || k == "core.snell_sha256" || k == domain.SettingConnlogSelf {
 			_ = a.Desired.PublishAll(r.Context())
 			break
+		}
+	}
+	if a.Store.Location().String() != zone {
+		if err := a.Traffic.RebasePeriods(r.Context()); err != nil {
+			return err
 		}
 	}
 	a.audit(r, "settings.update", "", map[string]any{"keys": changed})

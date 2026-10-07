@@ -325,6 +325,8 @@ func (a *API) routes() {
 	a.handle("POST /api/v1/servers/{id}/enroll-token", adminAccess, a.enrollToken)
 	a.handle("POST /api/v1/servers/{id}/reset-token", adminAccess, a.resetAgentToken)
 	a.handle("GET /api/v1/servers/{id}/traffic", adminAccess, a.serverTraffic)
+	a.handle("PUT /api/v1/servers/{id}/usage", adminAccess, a.calibrateServer)
+	a.handle("DELETE /api/v1/servers/{id}/usage", adminAccess, a.calibrateServer)
 	a.handle("GET /api/v1/servers/{id}/transits", adminAccess, a.listManagedTransits)
 	a.handle("POST /api/v1/transits/preview", adminAccess, a.previewManagedTransit)
 	a.handle("POST /api/v1/transits", adminAccess, a.createManagedTransit)

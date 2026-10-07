@@ -6,7 +6,7 @@ import type { Series, Server, Share } from "@/lib/types";
 import { cn, fmtBytes, STATUS_LABELS } from "@/lib/utils";
 import { Button, Card, CardContent, CardHeader, CardTitle, Empty, PageHeader, Progress, SectionTitle, Spinner, Stat } from "@/components/ui";
 import { TrafficBars } from "@/components/charts";
-import { ServerCard } from "@/components/server-card";
+import { ServerCard, sortServers } from "@/components/server-card";
 
 interface Dash {
   counts: { servers: number; servers_online: number; shares: number; shares_active: number; lines: number };
@@ -49,10 +49,7 @@ export function DashboardPage() {
         <Stat tint="peach" icon={<Users2 />} label="用户 / 线路" value={`${d.counts.shares_active} / ${d.counts.lines}`} sub={d.counts.shares > d.counts.shares_active ? `${d.counts.shares - d.counts.shares_active} 个用户未在使用` : undefined} />
       </div>
 
-      <SectionTitle className="mt-8">服务器</SectionTitle>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{d.servers.map((s) => <ServerCard key={s.id} s={s} />)}</div>
-
-      <div className="mt-8 grid gap-4 lg:grid-cols-3">
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>近 30 天流量（全部服务器）</CardTitle></CardHeader>
           <CardContent>{d.traffic.servers_30d?.has_data ? <TrafficBars points={d.traffic.servers_30d.points} /> : <p className="text-sm text-muted-foreground">暂无用量记录</p>}</CardContent>
@@ -81,6 +78,9 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <SectionTitle className="mt-8">服务器</SectionTitle>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{sortServers(d.servers).map((s) => <ServerCard key={s.id} s={s} />)}</div>
     </div>
   );
 }

@@ -144,6 +144,23 @@ export function parseResetDay(raw: string | number): number {
   return d;
 }
 
+/** Month and day of a period boundary, read in the timezone the panel sent it in. */
+export function fmtPeriodDay(s?: string | null): string {
+  const m = /^\d{4}-(\d{2})-(\d{2})T/.exec(s ?? "");
+  return m ? `${Number(m[1])} 月 ${Number(m[2])} 日` : "-";
+}
+
+/** How long until a server's running period ends: "21 天后重置". */
+export function fmtResetIn(next?: string | null): string {
+  if (!next) return "";
+  const left = new Date(next).getTime() - Date.now();
+  if (Number.isNaN(left)) return "";
+  if (left <= 0) return "即将重置";
+  return left < 86400e3 ? `${Math.ceil(left / 3600e3)} 小时后重置` : `${Math.floor(left / 86400e3)} 天后重置`;
+}
+
+export const BILLING_LABELS: Record<string, string> = { dual: "入站 + 出站", out: "只算出站" };
+
 export function formatResetDay(n: number): string {
   if (n <= 0) return "";
   if (n >= 29) return "每月最后一天";

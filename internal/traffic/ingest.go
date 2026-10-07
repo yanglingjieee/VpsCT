@@ -93,6 +93,8 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 		hb.Metrics = agentproto.Metrics{}
 	}
 	now := i.Now()
+	local := now.In(i.Store.Location())
+	serverPeriod := PeriodStart(local, server.QuotaResetDay)
 	ts := hb.TS
 	if ts.IsZero() || ts.After(now.Add(5*time.Minute)) {
 		ts = now
@@ -123,6 +125,11 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 		epoch = "default"
 	}
 	err = i.Store.Tx(ctx, func(tx *sql.Tx) error {
+		if !serverPeriod.IsZero() {
+			if _, err := store.EnsureServerPeriod(ctx, tx, server.ID, serverPeriod); err != nil {
+				return err
+			}
+		}
 		var appliedForwards []agentproto.ForwardSpec
 		if r := hb.ForwardReceipt; r != nil {
 			replay, applied, err := i.Store.CheckForwardReceipt(ctx, tx, server.ID, *r)
@@ -152,6 +159,12 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 			}
 		}
 		add := func(subject string, id int64, rx, txBytes int64) error {
+			// A delayed report belongs to the period it was sampled in.
+			if subject == store.SubjectServer && id == server.ID && !serverPeriod.IsZero() && !ts.Before(serverPeriod) && (rx != 0 || txBytes != 0) {
+				if err := store.AddServerPeriod(ctx, tx, id, rx, txBytes); err != nil {
+					return err
+				}
+			}
 			for _, bucket := range []struct{ table, key string }{{"traffic_hourly", ts.UTC().Truncate(time.Hour).Format(time.RFC3339)}, {"traffic_daily", ts.UTC().Format("2006-01-02")}} {
 				_, err := tx.ExecContext(ctx, "INSERT INTO "+bucket.table+"(bucket,subject,subject_id,up,down) VALUES (?,?,?,?,?) ON CONFLICT(bucket,subject,subject_id) DO UPDATE SET up=up+excluded.up,down=down+excluded.down", bucket.key, subject, id, rx, txBytes)
 				if err != nil {
@@ -327,7 +340,7 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 				return err
 			}
 			oldPeriod, _ := time.Parse(time.RFC3339Nano, period)
-			start := PeriodStart(now, resetDay)
+			start := PeriodStart(local, resetDay)
 			if !start.IsZero() && start.After(oldPeriod) {
 				if _, err := tx.ExecContext(ctx, "UPDATE shares SET period_start=?,used_upload=0,used_download=0,status=CASE WHEN status='exhausted' THEN 'active' ELSE status END WHERE id=?", start.Format(time.RFC3339Nano), sh.ShareID); err != nil {
 					return err
@@ -361,19 +374,20 @@ func (i *Ingestor) Ingest(ctx context.Context, server domain.Server, hb agentpro
 	return res, err
 }
 
-// PeriodStart returns the start of the current billing period.
-// 1–28 are that calendar day; 29/30/31 mean the last day of each month.
+// PeriodStart returns the start of the current billing period: midnight of
+// the reset day in now's location. 1–28 are that calendar day; 29/30/31 mean
+// the last day of each month.
 func PeriodStart(now time.Time, resetDay int) time.Time {
 	resetDay = domain.NormalizeResetDay(resetDay)
 	if resetDay <= 0 {
 		return time.Time{}
 	}
-	now = now.UTC()
+	loc := now.Location()
 	y, m, d := now.Date()
-	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
-	thisMonth := clampResetDate(y, m, resetDay)
+	today := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	thisMonth := clampResetDate(y, m, resetDay, loc)
 	if today.Before(thisMonth) {
-		return clampResetDate(y, m-1, resetDay)
+		return clampResetDate(y, m-1, resetDay, loc)
 	}
 	return thisMonth
 }
@@ -385,61 +399,132 @@ func NextReset(now time.Time, resetDay int) time.Time {
 		return time.Time{}
 	}
 	y, m, _ := start.Date()
-	return clampResetDate(y, m+1, resetDay)
+	return clampResetDate(y, m+1, resetDay, start.Location())
 }
 
-func clampResetDate(year int, month time.Month, resetDay int) time.Time {
+func clampResetDate(year int, month time.Month, resetDay int, loc *time.Location) time.Time {
 	resetDay = domain.NormalizeResetDay(resetDay)
 	if resetDay < 1 {
 		resetDay = 1
 	}
-	last := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	last := time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
 	if resetDay >= 29 || resetDay > last {
 		resetDay = last
 	}
-	return time.Date(year, month, resetDay, 0, 0, 0, 0, time.UTC)
+	return time.Date(year, month, resetDay, 0, 0, 0, 0, loc)
 }
 
 // ServerUsage is the current-period usage of a VPS.
 type ServerUsage struct {
-	ServerID    int64     `json:"server_id"`
-	PeriodStart time.Time `json:"period_start"`
-	Up          int64     `json:"up"`   // inbound (NIC rx)
-	Down        int64     `json:"down"` // outbound (NIC tx)
-	Inbound     int64     `json:"inbound"`
-	Outbound    int64     `json:"outbound"`
-	Total       int64     `json:"total"`
-	Billed      int64     `json:"billed"`
-	OneWay      int64     `json:"one_way"`
-	TwoWay      int64     `json:"two_way"`
-	Quota       int64     `json:"quota"`
-	Percent     float64   `json:"percent"`
-	OverQuota   bool      `json:"over_quota"`
+	ServerID    int64      `json:"server_id"`
+	PeriodStart time.Time  `json:"period_start"`
+	NextReset   *time.Time `json:"next_reset,omitempty"` // absent on a rolling 30-day window
+	Up          int64      `json:"up"`                   // inbound (NIC rx)
+	Down        int64      `json:"down"`                 // outbound (NIC tx)
+	Inbound     int64      `json:"inbound"`
+	Outbound    int64      `json:"outbound"`
+	Total       int64      `json:"total"`
+	Billing     string     `json:"billing"`  // dual | out
+	Measured    int64      `json:"measured"` // what the panel counted, in the billing mode
+	Adjust      int64      `json:"adjust"`   // correction to the host's own figure
+	Billed      int64      `json:"billed"`   // measured + adjust
+	OneWay      int64      `json:"one_way"`
+	TwoWay      int64      `json:"two_way"`
+	Quota       int64      `json:"quota"`
+	Percent     float64    `json:"percent"`
+	OverQuota   bool       `json:"over_quota"`
 }
 
-// ServerUsage computes the current period usage of a server.
+func billed(mode string, inbound, outbound int64) int64 {
+	if mode == domain.BillingOut {
+		return outbound
+	}
+	return inbound + outbound
+}
+
+// ServerUsage computes the current period usage of a server. With a reset
+// day it is the running count of the period; without one, the last 30 days.
 func (i *Ingestor) ServerUsage(ctx context.Context, s domain.Server) (ServerUsage, error) {
 	now := i.Now()
-	start := PeriodStart(now, s.QuotaResetDay)
+	local := now.In(i.Store.Location())
+	u := ServerUsage{ServerID: s.ID, Quota: s.QuotaBytes, Billing: s.QuotaBilling}
+	start := PeriodStart(local, s.QuotaResetDay)
+	var up, down int64
 	if start.IsZero() {
 		start = now.AddDate(0, 0, -30)
+		var err error
+		if up, down, err = i.Store.SumTraffic(ctx, store.SubjectServer, s.ID, start, now); err != nil {
+			return ServerUsage{}, err
+		}
+	} else {
+		next := NextReset(local, s.QuotaResetDay)
+		u.NextReset = &next
+		p, err := i.Store.ServerPeriod(ctx, s.ID)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			// No heartbeat yet under this reset day: the history stands in.
+			if up, down, err = i.Store.SumTraffic(ctx, store.SubjectServer, s.ID, start, now); err != nil {
+				return ServerUsage{}, err
+			}
+		case err != nil:
+			return ServerUsage{}, err
+		case !start.After(p.Start):
+			up, down, u.Adjust = p.Rx, p.Tx, p.Adjust
+		}
 	}
-	up, down, err := i.Store.SumTraffic(ctx, store.SubjectServer, s.ID, start, now)
-	if err != nil {
-		return ServerUsage{}, err
-	}
-	u := ServerUsage{ServerID: s.ID, PeriodStart: start, Up: up, Down: down, Quota: s.QuotaBytes}
+	u.PeriodStart, u.Up, u.Down = start, up, down
 	u.Inbound = domain.Inbound(up, down)
 	u.Outbound = domain.Outbound(up, down)
 	u.Total = domain.Total(up, down)
 	u.OneWay = u.Outbound
 	u.TwoWay = u.Total
-	u.Billed = u.Total
+	u.Measured = billed(s.QuotaBilling, u.Inbound, u.Outbound)
+	if u.Billed = u.Measured + u.Adjust; u.Billed < 0 {
+		u.Billed = 0
+	}
 	if s.QuotaBytes > 0 {
 		u.Percent = float64(u.Billed) / float64(s.QuotaBytes) * 100
 		u.OverQuota = u.Billed >= s.QuotaBytes
 	}
 	return u, nil
+}
+
+// ErrNoPeriod is returned when a server on a rolling window is corrected.
+var ErrNoPeriod = errors.New("server has no reset day")
+
+// CalibrateServer corrects the billed usage of the running period to used,
+// the figure the host itself reports; nil removes the correction. The panel
+// keeps counting from there, and the correction ends with the period.
+func (i *Ingestor) CalibrateServer(ctx context.Context, s domain.Server, used *int64) error {
+	start := PeriodStart(i.Now().In(i.Store.Location()), s.QuotaResetDay)
+	if start.IsZero() {
+		return ErrNoPeriod
+	}
+	return i.Store.Tx(ctx, func(tx *sql.Tx) error {
+		p, err := store.EnsureServerPeriod(ctx, tx, s.ID, start)
+		if err != nil {
+			return err
+		}
+		var adjust int64
+		if used != nil {
+			adjust = *used - billed(s.QuotaBilling, p.Rx, p.Tx)
+		}
+		return store.SetServerAdjust(ctx, tx, s.ID, adjust)
+	})
+}
+
+// RebasePeriods follows a change of the reset timezone: a running period now
+// starts some hours earlier or later, and must not be taken for a new one.
+func (i *Ingestor) RebasePeriods(ctx context.Context) error {
+	local := i.Now().In(i.Store.Location())
+	return i.Store.RebasePeriods(ctx, func(resetDay int, stored time.Time) (time.Time, bool) {
+		start := PeriodStart(local, resetDay)
+		shift := start.Sub(stored)
+		if shift < 0 {
+			shift = -shift
+		}
+		return start, !start.IsZero() && shift != 0 && shift < 48*time.Hour
+	})
 }
 
 // Series is a chart-ready daily series.

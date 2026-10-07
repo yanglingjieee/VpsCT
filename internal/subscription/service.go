@@ -489,7 +489,7 @@ func (s *Service) aggregateUserinfo(ctx context.Context, sub domain.Subscription
 
 func (s *Service) subscriptionUserinfo(ctx context.Context, sub domain.Subscription, nodes []domain.Node, now time.Time) *Userinfo {
 	ui := s.aggregateUserinfo(ctx, sub)
-	start := traffic.PeriodStart(now, sub.ResetDay)
+	start := traffic.PeriodStart(now.In(s.Store.Location()), sub.ResetDay)
 	if start.IsZero() {
 		start = sub.CreatedAt
 		if start.IsZero() {
@@ -522,7 +522,7 @@ func (s *Service) applySubQuota(ui *Userinfo, sub domain.Subscription, now time.
 	}
 	var cycle *time.Time
 	if sub.ResetDay > 0 {
-		nr := traffic.NextReset(now, sub.ResetDay)
+		nr := traffic.NextReset(now.In(s.Store.Location()), sub.ResetDay)
 		cycle = &nr
 	}
 	for _, t := range []*time.Time{cycle, sub.ExpireAt} {

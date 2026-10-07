@@ -53,7 +53,7 @@ func (m *Manager) Create(ctx context.Context, sh *domain.Share) (string, error) 
 	now := m.Now()
 	sh.Status = domain.ShareActive
 	if sh.ResetDay > 0 {
-		sh.PeriodStart = traffic.PeriodStart(now, sh.ResetDay)
+		sh.PeriodStart = traffic.PeriodStart(now.In(m.Store.Location()), sh.ResetDay)
 	} else {
 		sh.PeriodStart = now
 	}
@@ -291,7 +291,7 @@ func (m *Manager) evaluate(ctx context.Context, id int64) error {
 	}
 	// period rollover
 	if sh.ResetDay > 0 {
-		ps := traffic.PeriodStart(now, sh.ResetDay)
+		ps := traffic.PeriodStart(now.In(m.Store.Location()), sh.ResetDay)
 		if ps.After(sh.PeriodStart) {
 			if err := m.Store.ResetShareUsage(ctx, sh.ID, ps); err != nil {
 				return err
@@ -549,7 +549,7 @@ func (m *Manager) UsageOf(sh domain.Share) Usage {
 		}
 	}
 	if sh.ResetDay > 0 {
-		nr := traffic.NextReset(m.Now(), sh.ResetDay)
+		nr := traffic.NextReset(m.Now().In(m.Store.Location()), sh.ResetDay)
 		u.NextReset = &nr
 	}
 	return u

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the reset timezone must load on hosts without zoneinfo
 
 	"ctlvps/internal/agentnet"
 	"ctlvps/internal/api"
@@ -307,9 +308,9 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 			if err != nil {
 				continue
 			}
-			line := fmt.Sprintf("• %s: ↑%s ↓%s", srv.Name, human(u.Up), human(u.Down))
+			line := fmt.Sprintf("• %s: %s", srv.Name, human(u.Billed))
 			if u.Quota > 0 {
-				line += fmt.Sprintf(" (%.0f%%)", u.Percent)
+				line += fmt.Sprintf(" / %s（%.0f%%）", human(u.Quota), u.Percent)
 			}
 			b.WriteString(line + "\n")
 		}

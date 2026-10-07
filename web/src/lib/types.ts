@@ -157,11 +157,18 @@ export interface Agent {
 export interface ServerUsage {
   server_id: number;
   period_start: string;
+  /** Absent when the server has no reset day and usage is the last 30 days. */
+  next_reset?: string;
   up: number;
   down: number;
   inbound?: number;
   outbound?: number;
   total?: number;
+  /** "dual" counts inbound + outbound, "out" outbound only. */
+  billing: string;
+  /** What the panel counted in the billing mode; billed = measured + adjust. */
+  measured: number;
+  adjust: number;
   billed: number;
   one_way: number;
   two_way: number;
@@ -179,7 +186,7 @@ export interface Server {
   notes: string;
   quota_bytes: number;
   quota_reset_day: number;
-  quota_billing: string;
+  quota_billing: "dual" | "out";
   core_mode: "stable" | "lean";
   ipv4_only: boolean;
   prefer_ipv6: boolean;

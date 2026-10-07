@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -163,7 +164,7 @@ func (in serverInput) apply(s *domain.Server) error {
 		return httpx.BadRequest("重置日必须在 0-31 之间（29–31 为每月最后一天）")
 	}
 	s.QuotaResetDay = domain.NormalizeResetDay(in.QuotaResetDay)
-	mode, ok := domain.NormalizeBilling(in.QuotaBilling)
+	mode, ok := domain.NormalizeServerBilling(in.QuotaBilling)
 	if !ok {
 		return httpx.BadRequest("计费方式无效")
 	}
@@ -245,11 +246,21 @@ func (a *API) updateServer(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	prevMode := s.CoreMode
+	prevMode, prevResetDay, prevBilling := s.CoreMode, s.QuotaResetDay, s.QuotaBilling
 	if err := in.apply(&s); err != nil {
 		return err
 	}
 	if err := a.Store.UpdateServer(r.Context(), &s); err != nil {
+		return err
+	}
+	// A different reset day is a different period, counted again from the
+	// history; a different billing mode leaves a correction meaningless.
+	if prevResetDay != s.QuotaResetDay {
+		err = a.Store.DropServerPeriod(r.Context(), s.ID)
+	} else if prevBilling != s.QuotaBilling {
+		err = a.Store.ClearServerAdjust(r.Context(), s.ID)
+	}
+	if err != nil {
 		return err
 	}
 	if prevMode != s.CoreMode {
@@ -271,6 +282,42 @@ func (a *API) updateServer(w http.ResponseWriter, r *http.Request) error {
 	// accept the entry servers' addresses.
 	a.syncLines(r)
 	a.audit(r, "server.update", s.Name, nil)
+	httpx.OK(w, a.serverView(r, s, true))
+	return nil
+}
+
+// calibrateServer sets what the server has used in its running period to the
+// figure its host reports (PUT), or goes back to the panel's own count (DELETE).
+func (a *API) calibrateServer(w http.ResponseWriter, r *http.Request) error {
+	id, err := httpx.PathInt64(r, "id")
+	if err != nil {
+		return err
+	}
+	s, err := a.Store.GetServer(r.Context(), id)
+	if err != nil {
+		return httpx.ErrNotFound
+	}
+	var used *int64
+	if r.Method == http.MethodPut {
+		var in struct {
+			UsedBytes *int64 `json:"used_bytes"`
+		}
+		if err := httpx.Decode(r, &in); err != nil {
+			return err
+		}
+		if in.UsedBytes == nil || *in.UsedBytes < 0 || *in.UsedBytes > 1<<60 {
+			return httpx.BadRequest("本期已用流量无效")
+		}
+		used = in.UsedBytes
+	}
+	if err := a.Traffic.CalibrateServer(r.Context(), s, used); err != nil {
+		if errors.Is(err, traffic.ErrNoPeriod) {
+			return httpx.BadRequest("这台服务器没有重置日，按近 30 天滚动统计，没有“本期”可校正；先设置重置日")
+		}
+		return err
+	}
+	a.audit(r, "server.calibrate_usage", s.Name, map[string]any{"used_bytes": used})
+	a.checkServerQuota(r.Context(), s)
 	httpx.OK(w, a.serverView(r, s, true))
 	return nil
 }

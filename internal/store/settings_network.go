@@ -42,6 +42,9 @@ func (s *Store) SetSettings(ctx context.Context, values map[string]string) error
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	if _, zone := values[domain.SettingQuotaTimezone]; zone {
+		defer s.loadLocation(ctx)
+	}
 	return s.Tx(ctx, func(tx *sql.Tx) error {
 		if version, changing := values[domain.SettingSingBoxVersion]; changing && !corecompat.SS2022Outbound(strings.TrimSpace(version)) {
 			var count int

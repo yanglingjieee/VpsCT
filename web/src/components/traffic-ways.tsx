@@ -1,10 +1,5 @@
 import { cn, fmtBytes } from "@/lib/utils";
 
-/** Stored up = NIC rx (入站), down = NIC tx (出站). */
-export function nicIO(up = 0, down = 0) {
-  return { inbound: up, outbound: down, total: up + down };
-}
-
 export function TrafficIO({
   inbound = 0,
   outbound = 0,

@@ -1,17 +1,17 @@
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { Server } from "@/lib/types";
-import { cn, fmtBytes, fmtDuration, fmtRate } from "@/lib/utils";
+import { cn, fmtBytes, fmtDuration, fmtRate, fmtResetIn } from "@/lib/utils";
 import { Card } from "@/components/ui";
 
-function Meter({ label, percent, detail }: { label: string; percent: number | null; detail?: string }) {
+function Meter({ label, note, percent, detail }: { label: string; note?: string; percent: number | null; detail?: string }) {
   const p = percent == null ? 0 : Math.max(0, Math.min(100, percent));
   const tone = p >= 90 ? "bg-rose-500" : p >= 75 ? "bg-amber-500" : "bg-emerald-500";
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums">{percent == null ? "—" : `${p.toFixed(0)}%`}{detail && <span className="ml-1.5 text-muted-foreground">{detail}</span>}</span>
+        <span className="min-w-0 truncate text-muted-foreground">{label}{note && <span className="ml-1.5 opacity-70">{note}</span>}</span>
+        <span className="shrink-0 tabular-nums">{percent == null ? "—" : `${p.toFixed(0)}%`}{detail && <span className="ml-1.5 text-muted-foreground">{detail}</span>}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full transition-all", tone)} style={{ width: `${p}%` }} /></div>
     </div>
@@ -20,12 +20,18 @@ function Meter({ label, percent, detail }: { label: string; percent: number | nu
 
 const ratio = (used?: number, total?: number) => (total ? ((used ?? 0) / total) * 100 : null);
 
+/** Servers that carry lines come first, the ones only watched after them; by name within each. */
+export function sortServers(list: Server[]): Server[] {
+  return [...list].sort((a, b) => Number(b.node_count > 0) - Number(a.node_count > 0));
+}
+
 /** One server as a probe tile: is it up, how loaded, how much traffic is left. */
 export function ServerCard({ s }: { s: Server }) {
   const m = s.agent_status === "online" ? s.metrics : undefined;
   const dot = s.agent_status === "online" ? "bg-emerald-500" : s.agent_status === "offline" ? "bg-rose-500" : "bg-muted-foreground/40";
   const trouble = s.agent_status === "online" && ((s.desired && !s.desired.in_sync) || !!s.agent?.apply_error);
-  const used = s.usage?.total ?? (s.usage ? s.usage.up + s.usage.down : 0);
+  const u = s.usage;
+  const usageLabel = !u?.next_reset ? "近 30 天流量" : u.billing === "out" ? "本期出站流量" : "本期流量";
   return (
     <Link to={`/servers/${s.id}`} className="block min-w-0">
       <Card className={cn("h-full p-4 transition-colors hover:bg-accent/30", s.agent_status === "offline" && "border-rose-500/40")}>
@@ -47,7 +53,7 @@ export function ServerCard({ s }: { s: Server }) {
           <Meter label="CPU" percent={m ? m.cpu_percent : null} detail={m ? `负载 ${m.load1.toFixed(2)}` : undefined} />
           <Meter label="内存" percent={m ? ratio(m.mem_used, m.mem_total) : null} detail={m ? fmtBytes(m.mem_total, 0) : undefined} />
           <Meter label="硬盘" percent={m ? ratio(m.disk_used, m.disk_total) : null} detail={m ? fmtBytes(m.disk_total, 0) : undefined} />
-          <Meter label="本期流量" percent={s.quota_bytes > 0 ? s.usage?.percent ?? 0 : null} detail={s.quota_bytes > 0 ? `${fmtBytes(s.usage?.billed)} / ${fmtBytes(s.quota_bytes, 0)}` : fmtBytes(used)} />
+          <Meter label={usageLabel} note={fmtResetIn(u?.next_reset)} percent={s.quota_bytes > 0 ? u?.percent ?? 0 : null} detail={s.quota_bytes > 0 ? `${fmtBytes(u?.billed)} / ${fmtBytes(s.quota_bytes, 0)}` : fmtBytes(u?.billed ?? 0)} />
         </div>
         <p className="mt-3 flex flex-wrap justify-between gap-x-3 text-xs text-muted-foreground">
           <span>{m ? `运行 ${fmtDuration(m.uptime_sec)}` : "—"}</span>

@@ -54,7 +54,7 @@ func (a *API) subView(r *http.Request, s domain.Subscription, full bool) Subscri
 		v.NodeCount = len(b.Proxies) + len(b.Chains)
 	}
 	if s.ResetDay > 0 {
-		nr := traffic.NextReset(a.Store.Now(), s.ResetDay)
+		nr := traffic.NextReset(a.Store.Now().In(a.Store.Location()), s.ResetDay)
 		v.NextReset = &nr
 	}
 	return v

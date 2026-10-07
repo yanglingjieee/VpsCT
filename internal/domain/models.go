@@ -91,7 +91,7 @@ type Server struct {
 	Notes         string   `json:"notes"`
 	QuotaBytes    int64    `json:"quota_bytes"`     // 0 = unlimited
 	QuotaResetDay int      `json:"quota_reset_day"` // 1..28, or 31 = last day (29/30/31 normalize to 31)
-	QuotaBilling  string   `json:"quota_billing"`   // kept for compat; quota always uses inbound+outbound
+	QuotaBilling  string   `json:"quota_billing"`   // dual = inbound+outbound, out = outbound only
 	CoreMode      CoreMode `json:"core_mode"`
 	IPv4Only      bool     `json:"ipv4_only"`
 	PreferIPv6    bool     `json:"prefer_ipv6"` // outbound prefers AAAA, falls back to A; ignored when IPv4Only
@@ -460,6 +460,9 @@ const (
 	BillingUp   = "up"
 	BillingDown = "down"
 	BillingMax  = "max"
+	// BillingOut bills a server by what leaves its NIC, the way hosts that
+	// include a monthly egress allowance do.
+	BillingOut = "out"
 )
 
 // NormalizeResetDay keeps 1–28 as-is; 29/30/31 all mean last day of month (31).
@@ -482,6 +485,15 @@ func NormalizeBilling(mode string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// NormalizeServerBilling is how a server's quota is counted: both directions
+// (legacy mode names included) or outbound only.
+func NormalizeServerBilling(mode string) (string, bool) {
+	if mode == BillingOut {
+		return BillingOut, true
+	}
+	return NormalizeBilling(mode)
 }
 
 // Inbound is NIC rx (into the VPS). Stored as the "up" column.
@@ -612,6 +624,7 @@ const (
 	SettingAccessRetention  = "access_log.retention_days"
 	SettingAgentOfflineSec  = "agent.offline_after_seconds"
 	SettingQuotaAlertPct    = "quota.alert_percent"
+	SettingQuotaTimezone    = "quota.timezone" // IANA zone whose midnight starts a reset day
 	SettingSingBoxVersion   = "core.singbox_version"
 	SettingSnellVersion     = "core.snell_version"
 	SettingMitaVersion      = "core.mita_version"

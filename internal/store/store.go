@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -25,6 +26,7 @@ type Store struct {
 	secret          cipher.AEAD
 	migratedSecrets bool
 	db              *sql.DB
+	loc             atomic.Pointer[time.Location]
 	Now             func() time.Time
 }
 
@@ -70,6 +72,7 @@ func OpenWithKey(path, keyPath string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	s.loadLocation(context.Background())
 	if s.migratedSecrets && path != ":memory:" {
 		if _, err = s.db.Exec("VACUUM; PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 			db.Close()
