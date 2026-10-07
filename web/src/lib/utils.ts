@@ -13,7 +13,8 @@ export function displayName(u?: { display_name?: string; nickname?: string; user
 export function fmtBytes(n: number | undefined | null, digits = 1): string {
   if (n === undefined || n === null || Number.isNaN(n)) return "-";
   if (n === 0) return "0 B";
-  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+  // 1024-based, written the way clients and providers write it.
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let i = 0;
   let v = Math.abs(n);
   while (v >= 1024 && i < units.length - 1) {

@@ -397,6 +397,8 @@ export interface Line {
   landing_server?: string;
   problem?: string;
   users: number;
+  entry_bytes: number;
+  landing_bytes: number;
 }
 
 export interface LineCandidate {
@@ -406,6 +408,8 @@ export interface LineCandidate {
   server_name: string;
   listen_port: number;
   sni: string;
+  protocol: string;
+  landing: boolean;
 }
 
 export interface LineUsage {

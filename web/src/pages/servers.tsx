@@ -75,7 +75,7 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
         <Field label="名称"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="hk-1" /></Field>
         <Field label="地区" hint="两位代码，如 HK/JP/US"><Input value={f.region} onChange={(e) => set("region", e.target.value.toUpperCase())} maxLength={4} /></Field>
         <Field label="公网地址" hint="留空则使用 agent 上报的 IP" className="sm:col-span-2"><Input value={f.public_host} onChange={(e) => set("public_host", e.target.value)} placeholder="1.2.3.4 或 hk.example.com" /></Field>
-        <Field label="月流量配额 (GiB)" hint="0 为不限"><Input type="number" min={0} step="0.1" value={f.quota_gb} onChange={(e) => set("quota_gb", e.target.value)} /></Field>
+        <Field label="月流量配额 (GB)" hint="0 为不限"><Input type="number" min={0} step="0.1" value={f.quota_gb} onChange={(e) => set("quota_gb", e.target.value)} /></Field>
         <Field label="重置日" hint="1–28 固定那天；29/30/31 都是每月最后一天。不选则按近 30 天滚动。"><ResetDayInput value={f.quota_reset_day} onChange={(v) => set("quota_reset_day", v)} /></Field>
         <Field label="出口 IP 偏好" hint="目标同时有 IPv4 和 IPv6 时用哪个">
           <Select value={f.ip_pref} onChange={(e) => set("ip_pref", e.target.value as ServerForm["ip_pref"])}>
@@ -445,13 +445,13 @@ function ServerProxyUsage({ nodes }: { nodes: Node[] }) {
         <CardContent>
           {!inbounds.length ? <p className="text-sm text-muted-foreground">这台机器只做监控，没有入站。要让它代理流量，到<Link to="/nodes" className="text-primary hover:underline">「节点」</Link>里新建入站。</p> : (
             <Table>
-              <thead><tr className="border-b"><Th>名称</Th><Th>端口</Th><Th>伪装域名</Th><Th>凭据</Th><Th className="text-right">近 30 天</Th></tr></thead>
+              <thead><tr className="border-b"><Th>名称</Th><Th>协议</Th><Th>端口</Th><Th>凭据</Th><Th className="text-right">近 30 天</Th></tr></thead>
               <tbody>
                 {inbounds.map((n) => (
                   <Tr key={n.id}>
                     <Td className="font-medium">{n.name}{!n.enabled && <Badge variant="secondary" className="ml-2">已停用</Badge>}</Td>
+                    <Td className="text-muted-foreground">{PROTOCOL_LABELS[n.protocol] ?? n.protocol}</Td>
                     <Td className="tabular-nums">{n.listen_port}</Td>
-                    <Td className="text-muted-foreground">{String((n.params as { servername?: string })?.servername ?? "—")}</Td>
                     <Td className="tabular-nums">{members.filter((m) => m.attach_node_id === n.id).length}</Td>
                     <Td className="text-right tabular-nums">{n.traffic?.has_data ? fmtBytes(n.traffic.total) : "—"}</Td>
                   </Tr>

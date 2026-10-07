@@ -324,7 +324,7 @@ func humanBytes(b int64) string {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.2f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 func (a *API) agentDesired(w http.ResponseWriter, r *http.Request) error {

@@ -58,6 +58,18 @@ function LinePath({ l }: { l: Line }) {
   );
 }
 
+// Both machines of a relay carry the traffic, and both are shown.
+function LineTraffic({ l }: { l: Line }) {
+  if (!l.entry_bytes && !l.landing_bytes) return <span className="text-muted-foreground">—</span>;
+  if (!l.landing_node_id) return <>{fmtBytes(l.entry_bytes)}</>;
+  return (
+    <span className="inline-flex flex-col text-xs leading-5">
+      <span><span className="text-muted-foreground">{l.entry_server}</span> {fmtBytes(l.entry_bytes)}</span>
+      <span><span className="text-muted-foreground">{l.landing_server}</span> {fmtBytes(l.landing_bytes)}</span>
+    </span>
+  );
+}
+
 function LinesSection({ lines, hasInbound, onEdit, onCreate, onCreateInbound }: { lines: Line[]; hasInbound: boolean; onEdit: (l: Line) => void; onCreate: () => void; onCreateInbound: () => void }) {
   const toast = useToast();
   const invalidate = useInvalidate();
@@ -82,7 +94,7 @@ function LinesSection({ lines, hasInbound, onEdit, onCreate, onCreateInbound }: 
       ) : (
         <Card className="overflow-hidden p-0">
           <Table>
-            <thead><tr className="border-b"><Th className="w-20">顺序</Th><Th>名称</Th><Th>类型</Th><Th>路径</Th><Th>用户</Th><Th>状态</Th><Th></Th></tr></thead>
+            <thead><tr className="border-b"><Th className="w-20">顺序</Th><Th>名称</Th><Th>类型</Th><Th>路径</Th><Th>近 30 天流量</Th><Th>用户</Th><Th>状态</Th><Th></Th></tr></thead>
             <tbody>
               {lines.map((l, i) => (
                 <Tr key={l.id}>
@@ -95,6 +107,7 @@ function LinesSection({ lines, hasInbound, onEdit, onCreate, onCreateInbound }: 
                   <Td className="font-medium">{l.name}</Td>
                   <Td><Badge variant={l.landing_node_id ? "info" : "secondary"}>{l.landing_node_id ? "中转" : "直连"}</Badge></Td>
                   <Td><LinePath l={l} />{l.problem && <p className="text-xs text-destructive">{l.problem}</p>}</Td>
+                  <Td className="tabular-nums"><LineTraffic l={l} /></Td>
                   <Td className="tabular-nums">{l.users}</Td>
                   <Td><Switch size="sm" checked={l.enabled} onChange={() => toggle.mutate(l)} aria-label={`启用 ${l.name}`} /></Td>
                   <Td>
@@ -109,7 +122,7 @@ function LinesSection({ lines, hasInbound, onEdit, onCreate, onCreateInbound }: 
           </Table>
         </Card>
       )}
-      <p className="mt-2 text-xs text-muted-foreground">这里的顺序就是用户客户端里的顺序。中转线路由入口机转发到落地机，两台机器都按用户计量。</p>
+      <p className="mt-2 text-xs text-muted-foreground">这里的顺序就是用户客户端里的顺序。中转线路由入口机转发到落地机，两台机器都按用户计量，流量各记各的。</p>
       <Confirm open={!!confirm} onClose={() => setConfirm(null)} onConfirm={() => confirm && remove.mutate(confirm)} loading={remove.isPending} destructive title={`删除线路「${confirm?.name ?? ""}」？`} description={`${confirm?.users ?? 0} 个用户会在下次更新配置后失去这条线路；入站本身不受影响。`} />
     </section>
   );
@@ -140,7 +153,7 @@ function LineDialog({ state, onClose }: { state: { line?: Line } | null; onClose
     onSuccess: () => { toast.success(line ? "线路已保存" : "线路已创建，用户下次更新配置时生效"); invalidate(); onClose(); },
     onError: (e) => toast.fromError(e),
   });
-  const label = (c: LineCandidate) => `${c.server_name} · ${c.name} · :${c.listen_port}`;
+  const label = (c: LineCandidate) => `${c.server_name} · ${c.name} · ${PROTOCOL_LABELS[c.protocol] ?? c.protocol} :${c.listen_port}`;
   return (
     <Dialog open={!!state} onClose={onClose} title={line ? "编辑线路" : "新建线路"} size="sm"
       footer={<><Button variant="outline" onClick={onClose}>取消</Button><Button onClick={() => save.mutate()} loading={save.isPending} disabled={!name.trim() || !f.entry || (f.relay && (!f.landing || f.landing === f.entry))}>{line ? "保存" : "创建"}</Button></>}>
@@ -158,10 +171,10 @@ function LineDialog({ state, onClose }: { state: { line?: Line } | null; onClose
           </Select>
         </Field>
         {f.relay && (
-          <Field label="落地（流量出去的入站）" hint="落地机的地址和凭据不会出现在用户的配置里，只有入口机能连它。">
+          <Field label="落地（流量出去的入站）" hint="落地机的地址和凭据不会出现在用户的配置里，只有入口机能连它。落地入站要用 VLESS Reality 或 Shadowsocks 2022。">
             <Select value={String(f.landing)} onChange={(e) => setF((p) => ({ ...p, landing: Number(e.target.value) }))}>
               <option value="0">请选择</option>
-              {list.filter((c) => c.id !== f.entry).map((c) => <option key={c.id} value={c.id}>{label(c)}</option>)}
+              {list.filter((c) => c.id !== f.entry && c.landing).map((c) => <option key={c.id} value={c.id}>{label(c)}</option>)}
             </Select>
           </Field>
         )}
@@ -225,41 +238,85 @@ function InboundsSection({ inbounds, members, lines, onEdit }: { inbounds: Node[
   );
 }
 
+// Protocols one port can serve to several users. Snell, mieru and WireGuard
+// have a single identity per port and cannot.
+const INBOUND_PROTOCOLS = ["vless", "hysteria2", "tuic", "trojan", "anytls", "ss"] as const;
+const TLS_PROTOCOLS = ["hysteria2", "tuic", "trojan", "anytls"];
+const PROTOCOL_HINTS: Record<string, string> = {
+  vless: "TCP。借用一个真实网站的握手，不需要证书。最适合放在入口，也能做落地。",
+  hysteria2: "UDP（QUIC）。丢包多的线路上更快，需要证书。",
+  tuic: "UDP（QUIC）。需要证书。",
+  trojan: "TCP + TLS。需要证书。",
+  anytls: "TCP + TLS。需要证书。",
+  ss: "TCP + UDP。只靠密钥、没有握手，最轻；适合做落地，直接从国内连容易被识别。",
+};
+
 function InboundDialog({ state, servers, onClose }: { state: { node?: Node } | null; servers: Server[]; onClose: () => void }) {
   const toast = useToast();
   const invalidate = useInvalidate();
   const node = state?.node;
-  const [f, setF] = React.useState({ server: 0, name: "", port: "443", sni: "" });
+  const blank = { server: 0, protocol: "vless", name: "", port: "443", sni: "", domain: "", cert_mode: "self_signed", cert_id: "", obfs: false };
+  const [f, setF] = React.useState(blank);
   React.useEffect(() => {
     if (!state) return;
-    setF(node ? { server: node.server_id ?? 0, name: node.name, port: String(node.listen_port), sni: sni(node) } : { server: servers[0]?.id ?? 0, name: "", port: "443", sni: "" });
+    setF(node ? { ...blank, server: node.server_id ?? 0, protocol: node.protocol, name: node.name, port: String(node.listen_port), sni: sni(node) } : { ...blank, server: servers[0]?.id ?? 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, node, servers]);
-  const set = (k: keyof typeof f, v: string | number) => setF((p) => ({ ...p, [k]: v }));
+  const set = <K extends keyof typeof blank>(k: K, v: (typeof blank)[K]) => setF((p) => ({ ...p, [k]: v }));
+  const tls = TLS_PROTOCOLS.includes(f.protocol);
   const save = useMutation({
     mutationFn: () => node
-      ? put(`/api/v1/nodes/${node.id}`, { name: f.name, sni: f.sni.trim(), listen_port: Number(f.port) || 0 })
-      : post(`/api/v1/servers/${f.server}/nodes`, { protocol: "vless", name: f.name, port: Number(f.port) || 0, sni: f.sni.trim() }),
+      ? put(`/api/v1/nodes/${node.id}`, { name: f.name, sni: f.protocol === "vless" ? f.sni.trim() : "", listen_port: Number(f.port) || 0 })
+      : post(`/api/v1/servers/${f.server}/nodes`, {
+          protocol: f.protocol, name: f.name, port: Number(f.port) || 0, sni: f.protocol === "vless" ? f.sni.trim() : "",
+          domain: tls ? f.domain.trim() : "", cert_mode: tls ? f.cert_mode : "", cert_id: tls && f.cert_mode === "external" ? f.cert_id.trim() : "", obfs: f.protocol === "hysteria2" && f.obfs,
+        }),
     onSuccess: () => { toast.success(node ? "已保存，服务器同步后生效" : "入站已创建，服务器同步后生效"); invalidate(); onClose(); },
     onError: (e) => toast.fromError(e),
   });
-  const moved = node && (Number(f.port) !== node.listen_port || f.sni.trim().toLowerCase() !== sni(node));
+  const moved = node && (Number(f.port) !== node.listen_port || (f.protocol === "vless" && f.sni.trim().toLowerCase() !== sni(node)));
   return (
-    <Dialog open={!!state} onClose={onClose} title={node ? "编辑入站" : "新建入站"} size="sm" description="VLESS + Reality + Vision。密钥自动生成，不需要证书。"
+    <Dialog open={!!state} onClose={onClose} title={node ? "编辑入站" : "新建入站"} size="sm" description="入站是服务器上的一个端口。密钥自动生成，每个用户在上面各有自己的凭据。"
       footer={<><Button variant="outline" onClick={onClose}>取消</Button><Button onClick={() => save.mutate()} loading={save.isPending} disabled={!node && !f.server}>{node ? "保存" : "创建"}</Button></>}>
       <div className="grid gap-4">
         {!node && (
-          <Field label="服务器">
-            <Select value={String(f.server)} onChange={(e) => set("server", Number(e.target.value))}>
-              {servers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="服务器">
+              <Select value={String(f.server)} onChange={(e) => set("server", Number(e.target.value))}>
+                {servers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="协议">
+              <Select value={f.protocol} onChange={(e) => set("protocol", e.target.value)}>
+                {INBOUND_PROTOCOLS.map((p) => <option key={p} value={p}>{PROTOCOL_LABELS[p] ?? p}</option>)}
+              </Select>
+            </Field>
+          </div>
+        )}
+        {!node && <p className="-mt-2 text-xs text-muted-foreground">{PROTOCOL_HINTS[f.protocol]}</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="名称" hint="只在面板里显示"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="留空自动生成" /></Field>
+          <Field label="端口" hint="一台服务器上不能重复"><Input type="number" min={1} max={65535} value={f.port} onChange={(e) => set("port", e.target.value)} /></Field>
+        </div>
+        {f.protocol === "vless" && (
+          <Field label="伪装域名" hint="选一个从这台服务器连过去又快又稳的真实网站：每条新连接都会先和它握一次手。">
+            <Input value={f.sni} onChange={(e) => set("sni", e.target.value)} placeholder="www.sony.com" />
           </Field>
         )}
-        <Field label="名称" hint="只在面板里显示；用户看到的是线路名"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="留空自动生成" /></Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="端口"><Input type="number" min={1} max={65535} value={f.port} onChange={(e) => set("port", e.target.value)} /></Field>
-          <Field label="伪装域名"><Input value={f.sni} onChange={(e) => set("sni", e.target.value)} placeholder="www.sony.com" /></Field>
-        </div>
-        <p className="text-xs text-muted-foreground">伪装域名要选一个从这台服务器连过去又快又稳的真实网站：每条新连接都会先和它握一次手。</p>
+        {!node && tls && (
+          <>
+            <Field label="证书">
+              <Select value={f.cert_mode} onChange={(e) => set("cert_mode", e.target.value)}>
+                <option value="self_signed">自签名（客户端不校验证书，能用但不防中间人）</option>
+                <option value="acme">自动签发（要有域名指向这台服务器，且 80 端口可达）</option>
+                <option value="external">服务器上已有的证书</option>
+              </Select>
+            </Field>
+            {f.cert_mode !== "self_signed" && <Field label="域名" hint="证书上的域名，客户端用它连接"><Input value={f.domain} onChange={(e) => set("domain", e.target.value)} placeholder="node.example.com" /></Field>}
+            {f.cert_mode === "external" && <Field label="证书名称" hint="这台服务器本机安全策略里登记的证书名称"><Input value={f.cert_id} onChange={(e) => set("cert_id", e.target.value)} maxLength={64} /></Field>}
+          </>
+        )}
+        {!node && f.protocol === "hysteria2" && <Switch checked={f.obfs} onChange={(v) => set("obfs", v)} label="加一层混淆（Salamander），应对 QUIC 被针对的情况" />}
         {moved && <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">端口或伪装域名变了：密钥和每个人的凭据都不变，但所有用户要更新一次配置才能继续使用。</p>}
       </div>
     </Dialog>

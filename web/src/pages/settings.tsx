@@ -99,27 +99,71 @@ function GeneralTab() {
   );
 }
 
+interface TelegramStatus { configured: boolean; bot: string; error: string; chat_id: string }
+interface TelegramChat { id: string; title: string; type: string }
+
 function NotifyTab() {
   const s = useSettings();
   const toast = useToast();
-  const test = useMutation({ mutationFn: () => post("/api/v1/settings/telegram/test"), onSuccess: () => toast.success("测试消息已发送"), onError: (e) => toast.fromError(e, "发送失败") });
+  const qc = useQueryClient();
+  const status = useQuery({ queryKey: ["settings", "telegram"], queryFn: () => get<TelegramStatus>("/api/v1/settings/telegram/status") });
+  const [chats, setChats] = React.useState<TelegramChat[] | null>(null);
+  const refresh = () => qc.invalidateQueries({ queryKey: ["settings", "telegram"] });
+  const save = useMutation({
+    mutationFn: (values: Record<string, string>) => put("/api/v1/settings", values),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); refresh(); },
+    onError: (e) => toast.fromError(e),
+  });
+  const test = useMutation({ mutationFn: () => post("/api/v1/settings/telegram/test"), onSuccess: () => toast.success("测试消息已发送，去 Telegram 里看一眼"), onError: (e) => toast.fromError(e, "发送失败") });
+  const detect = useMutation({
+    mutationFn: () => get<TelegramChat[]>("/api/v1/settings/telegram/chats"),
+    onSuccess: (list) => {
+      if (!list.length) { toast.error("机器人还没收到过消息", "在 Telegram 里打开你的机器人，点 Start 或随便发一句话，再点一次"); return; }
+      if (list.length === 1) { save.mutate({ "telegram.chat_id": list[0].id }, { onSuccess: () => toast.success(`已选定：${list[0].title || list[0].id}`) }); return; }
+      setChats(list);
+    },
+    onError: (e) => toast.fromError(e),
+  });
   if (s.q.isLoading) return <Spinner />;
+  const st = status.data;
+  const typeLabel: Record<string, string> = { private: "私聊", group: "群组", supergroup: "群组", channel: "频道" };
   return (
     <Card className="max-w-2xl p-4 sm:p-5">
-      <p className="mb-3 text-sm leading-6 text-muted-foreground">会推：agent 离线/恢复、配置下发失败、服务器流量到 {s.value("quota.alert_percent") || "80"}%、服务器配额用尽、用户流量用尽、证书快到期、订阅同步失败。</p>
+      <p className="mb-4 text-sm leading-6 text-muted-foreground">会通知：服务器离线和恢复、配置下发失败、服务器流量到 {s.value("quota.alert_percent") || "80"}% 和用完、用户流量用完或到期、证书快到期，以及每日日报。</p>
       <div className="grid gap-4">
-        <Field label="Bot Token" hint="从 @BotFather 获取；保存后掩码显示"><Input className="mono" value={s.value("telegram.bot_token")} onChange={(e) => s.set("telegram.bot_token", e.target.value)} placeholder="123456:ABC-DEF..." /></Field>
-        <Field label="Chat ID" hint="个人或群组 ID；可用 @userinfobot 查询"><Input className="mono" value={s.value("telegram.chat_id")} onChange={(e) => s.set("telegram.chat_id", e.target.value)} /></Field>
+        <Field label="Bot Token" hint="在 Telegram 里找 @BotFather 新建机器人，把它给的那段话整段粘进来就行">
+          <Input className="mono" value={s.value("telegram.bot_token")} onChange={(e) => s.set("telegram.bot_token", e.target.value)} placeholder="123456789:AA…" />
+        </Field>
+        {st?.configured && (
+          <p className={cn("-mt-2 text-xs", st.error ? "text-destructive" : "text-emerald-600 dark:text-emerald-400")}>{st.error || `已连接到机器人 ${st.bot}`}</p>
+        )}
+        <Field label="Chat ID" hint="通知发给谁。是一串数字，不是机器人的名字：先在 Telegram 里给机器人发一条消息，再点「自动获取」">
+          <div className="flex gap-2">
+            <Input className="mono" value={s.value("telegram.chat_id")} onChange={(e) => s.set("telegram.chat_id", e.target.value)} placeholder="123456789" />
+            <Button variant="outline" className="shrink-0" onClick={() => detect.mutate()} loading={detect.isPending || save.isPending} disabled={s.dirty || !st?.configured || !!st.error}>自动获取</Button>
+          </div>
+        </Field>
+        {chats && (
+          <div className="-mt-2 rounded-xl border">
+            {chats.map((c) => (
+              <button key={c.id} className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-accent/40"
+                onClick={() => save.mutate({ "telegram.chat_id": c.id }, { onSuccess: () => { toast.success(`已选定：${c.title || c.id}`); setChats(null); } })}>
+                <span className="min-w-0 break-words">{c.title || c.id}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{typeLabel[c.type] ?? c.type} · {c.id}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-4">
-          <Switch checked={s.value("telegram.daily_report") === "1"} onChange={(v) => s.set("telegram.daily_report", v ? "1" : "0")} label="每日流量日报" />
+          <Switch checked={s.value("telegram.daily_report") === "1"} onChange={(v) => s.set("telegram.daily_report", v ? "1" : "0")} label="每日日报（各服务器和各用户的用量）" />
           <Field label="发送时刻 (0-23 时)"><Input type="number" min={0} max={23} className="w-24" value={s.value("telegram.daily_hour")} onChange={(e) => s.set("telegram.daily_hour", e.target.value)} /></Field>
         </div>
       </div>
       <div className="mt-4 flex justify-between">
         <Button variant="outline" onClick={() => test.mutate()} loading={test.isPending} disabled={s.dirty}><Send className="h-4 w-4" /> 发送测试消息</Button>
-        <Button onClick={() => s.save.mutate()} loading={s.save.isPending} disabled={!s.dirty}><Save className="h-4 w-4" /> 保存</Button>
+        <Button onClick={() => s.save.mutate(undefined, { onSuccess: refresh })} loading={s.save.isPending} disabled={!s.dirty}><Save className="h-4 w-4" /> 保存</Button>
       </div>
-      {s.dirty && <p className="mt-2 text-right text-xs text-muted-foreground">先保存再测试</p>}
+      {s.dirty && <p className="mt-2 text-right text-xs text-muted-foreground">先保存，再自动获取或测试</p>}
     </Card>
   );
 }

@@ -15,6 +15,7 @@ import (
 
 	"ctlvps/internal/domain"
 	"ctlvps/internal/httpx"
+	"ctlvps/internal/notify"
 	"ctlvps/internal/store"
 )
 
@@ -235,7 +236,20 @@ func (a *API) putSettings(w http.ResponseWriter, r *http.Request) error {
 		if k == domain.SettingTelegramToken && strings.Contains(v, "••••") {
 			continue // masked value echoed back
 		}
-		values[k] = strings.TrimSpace(v)
+		v = strings.TrimSpace(v)
+		if k == domain.SettingTelegramToken && v != "" {
+			token, ok := notify.NormalizeToken(v)
+			if !ok {
+				return httpx.BadRequest("这不像 Bot Token：到 @BotFather 复制形如 123456789:AA… 的那一串")
+			}
+			v = token
+		}
+		if k == domain.SettingTelegramChatID {
+			if problem := notify.CheckChat(v); problem != "" {
+				return httpx.BadRequest(problem)
+			}
+		}
+		values[k] = v
 		changed = append(changed, k)
 	}
 	if err := a.Store.SetSettings(r.Context(), values); err != nil {
@@ -258,10 +272,46 @@ func (a *API) testTelegram(w http.ResponseWriter, r *http.Request) error {
 	if a.Notify == nil {
 		return httpx.BadRequest("通知未配置")
 	}
-	if err := a.Notify.Test(r.Context()); err != nil {
+	if err := a.Notify.Test(r.Context(), a.Store.GetSetting(r.Context(), domain.SettingSiteName, defaultSiteName)); err != nil {
+		if errors.Is(err, notify.ErrNotConfigured) {
+			return httpx.BadRequest("先填好 Bot Token 和 Chat ID 并保存")
+		}
 		return httpx.BadRequest(err.Error())
 	}
 	httpx.NoContent(w)
+	return nil
+}
+
+// telegramStatus tells the settings page which bot the saved token is, so a
+// wrong token shows up before anything depends on it.
+func (a *API) telegramStatus(w http.ResponseWriter, r *http.Request) error {
+	out := map[string]any{"configured": false, "bot": "", "error": "", "chat_id": a.Store.GetSetting(r.Context(), domain.SettingTelegramChatID, "")}
+	if a.Notify != nil {
+		bot, err := a.Notify.Bot(r.Context())
+		switch {
+		case err == nil:
+			out["configured"], out["bot"] = true, bot
+		case !errors.Is(err, notify.ErrNotConfigured):
+			out["configured"], out["error"] = true, err.Error()
+		}
+	}
+	httpx.OK(w, out)
+	return nil
+}
+
+// telegramChats lists who has written to the bot, to pick the chat id from.
+func (a *API) telegramChats(w http.ResponseWriter, r *http.Request) error {
+	if a.Notify == nil {
+		return httpx.BadRequest("通知未配置")
+	}
+	chats, err := a.Notify.Chats(r.Context())
+	if err != nil {
+		if errors.Is(err, notify.ErrNotConfigured) {
+			return httpx.BadRequest("先填好 Bot Token 并保存")
+		}
+		return httpx.BadRequest(err.Error())
+	}
+	httpx.OK(w, chats)
 	return nil
 }
 

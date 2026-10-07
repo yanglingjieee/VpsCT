@@ -198,7 +198,7 @@ export function UserDialog({ open, onClose, user }: { open: boolean; onClose: ()
           )}
 
           <section className="grid gap-3 sm:grid-cols-3">
-            <Field label="每期流量 (GiB)" hint="0 为不限"><Input type="number" min={0} step="1" value={f.quota_gb} onChange={(e) => set("quota_gb", e.target.value)} /></Field>
+            <Field label="每期流量 (GB)" hint="0 为不限"><Input type="number" min={0} step="1" value={f.quota_gb} onChange={(e) => set("quota_gb", e.target.value)} /></Field>
             <Field label="重置日"><ResetDayInput value={f.reset_day} onChange={(v) => set("reset_day", v)} /></Field>
             <Field label="到期时间"><DateTimeInput value={f.expires_at} onChange={(v) => set("expires_at", v)} placeholder="永久有效" /></Field>
           </section>

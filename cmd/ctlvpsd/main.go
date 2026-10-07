@@ -156,7 +156,11 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	shares.OnEvent = func(ctx context.Context, sh domain.Share, kind, detail string) {
 		switch kind {
 		case "status":
-			tg.SendDedup(ctx, fmt.Sprintf("share:%d:%s", sh.ID, detail), time.Hour, fmt.Sprintf("👥 分享「%s」状态变更为 %s", sh.Name, detail))
+			text := map[string]string{"exhausted": "本期流量已用完，线路已停用", "active": "已恢复正常", "expired": "已到期，线路已停用", "paused": "已暂停", "revoked": "已撤销"}[detail]
+			if text == "" {
+				text = "状态变为 " + detail
+			}
+			tg.SendDedup(ctx, fmt.Sprintf("share:%d:%s", sh.ID, detail), time.Hour, fmt.Sprintf("👤 用户「%s」%s", sh.Name, text))
 		}
 	}
 	ing := traffic.New(st)
@@ -272,11 +276,11 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 			isOff := time.Since(*ag.LastSeenAt) > offline
 			if isOff && !lastOfflineCheck[ag.ID] {
 				if srv, err := st.GetServer(ctx, ag.ServerID); err == nil && srv.Enabled {
-					tg.SendDedup(ctx, fmt.Sprintf("offline:%d", ag.ID), 6*time.Hour, fmt.Sprintf("🔴 %s 的 agent 离线（最后心跳 %s）", srv.Name, ag.LastSeenAt.Local().Format("01-02 15:04")))
+					tg.SendDedup(ctx, fmt.Sprintf("offline:%d", ag.ID), 6*time.Hour, fmt.Sprintf("🔴 %s 离线了（最后一次心跳 %s）", srv.Name, ag.LastSeenAt.Local().Format("01-02 15:04")))
 				}
 			} else if !isOff && lastOfflineCheck[ag.ID] {
 				if srv, err := st.GetServer(ctx, ag.ServerID); err == nil {
-					tg.SendDedup(ctx, fmt.Sprintf("online:%d", ag.ID), time.Hour, fmt.Sprintf("🟢 %s 的 agent 已恢复在线", srv.Name))
+					tg.SendDedup(ctx, fmt.Sprintf("online:%d", ag.ID), time.Hour, fmt.Sprintf("🟢 %s 恢复在线", srv.Name))
 				}
 			}
 			lastOfflineCheck[ag.ID] = isOff
@@ -297,7 +301,7 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 			return err
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "📊 ctlvps 日报 %s\n", now.Format("2006-01-02"))
+		fmt.Fprintf(&b, "📊 %s 日报 %s\n服务器本期流量：\n", st.GetSetting(ctx, domain.SettingSiteName, "土豆饼的家"), now.Format("2006-01-02"))
 		for _, srv := range servers {
 			u, err := ing.ServerUsage(ctx, srv)
 			if err != nil {
@@ -309,22 +313,30 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 			}
 			b.WriteString(line + "\n")
 		}
-		shares, _ := st.ListShares(ctx, nil)
-		active, exhausted := 0, 0
-		for _, sh := range shares {
-			switch sh.Status {
-			case domain.ShareActive:
-				active++
-			case domain.ShareExhausted:
-				exhausted++
+		if shares, _ := st.ListShares(ctx, nil); len(shares) > 0 {
+			b.WriteString("用户本期用量：\n")
+			for _, sh := range shares {
+				line := fmt.Sprintf("• %s: %s", sh.Name, human(sh.UsedUpload+sh.UsedDownload))
+				if sh.QuotaBytes > 0 {
+					line += " / " + human(sh.QuotaBytes)
+				}
+				switch sh.Status {
+				case domain.ShareExhausted:
+					line += "（已用完）"
+				case domain.ShareExpired:
+					line += "（已到期）"
+				case domain.SharePaused:
+					line += "（已暂停）"
+				case domain.ShareRevoked:
+					continue
+				}
+				b.WriteString(line + "\n")
 			}
 		}
-		fmt.Fprintf(&b, "分享: %d 活跃 / %d 用尽", active, exhausted)
-		if err := tg.Send(ctx, b.String()); err != nil {
-			return err
-		}
+		// A day whose report cannot be delivered is not retried every ten
+		// minutes: the settings page shows what is wrong.
 		lastReport = now.Format("2006-01-02")
-		return nil
+		return tg.Send(ctx, strings.TrimRight(b.String(), "\n"))
 	}})
 }
 
@@ -338,5 +350,5 @@ func human(b int64) string {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }

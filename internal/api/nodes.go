@@ -85,6 +85,29 @@ func (a *API) nodeViews(r *http.Request, nodes []domain.Node) []NodeView {
 		}
 		out = append(out, v)
 	}
+	// An inbound's traffic is what its users carried through it. Its own
+	// counter only sees the client side, and not even that where a host
+	// forwards the port through loopback.
+	if summaryErr == nil {
+		if members, err := a.Store.ListNodes(ctx, store.NodeFilter{Source: domain.NodeDeployed}); err == nil {
+			carried := map[int64]store.TrafficSummary{}
+			for _, m := range members {
+				if m.AttachNodeID == nil {
+					continue
+				}
+				sum, mine := carried[*m.AttachNodeID], summaries[m.ID]
+				sum.Inbound, sum.Outbound, sum.Total = sum.Inbound+mine.Inbound, sum.Outbound+mine.Outbound, sum.Total+mine.Total
+				sum.HasData, sum.Days = sum.HasData || mine.HasData, 30
+				carried[*m.AttachNodeID] = sum
+			}
+			for i := range out {
+				if sum, ok := carried[out[i].ID]; ok && out[i].AttachNodeID == nil {
+					sum := sum
+					out[i].Traffic = &sum
+				}
+			}
+		}
+	}
 	names := map[int64]string{}
 	for _, n := range nodes {
 		names[n.ID] = n.Name
@@ -595,9 +618,36 @@ func (a *API) nodeTraffic(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	s, err := a.Traffic.Daily(r.Context(), store.SubjectNode, id, httpx.QueryInt(r, "days", 30))
+	days := httpx.QueryInt(r, "days", 30)
+	s, err := a.Traffic.Daily(r.Context(), store.SubjectNode, id, days)
 	if err != nil {
 		return err
+	}
+	// For an inbound with users, chart what they carried through it.
+	if members, err := a.Store.ListNodes(r.Context(), store.NodeFilter{Source: domain.NodeDeployed}); err == nil {
+		first := true
+		for _, m := range members {
+			if m.AttachNodeID == nil || *m.AttachNodeID != id {
+				continue
+			}
+			ms, err := a.Traffic.Daily(r.Context(), store.SubjectNode, m.ID, days)
+			if err != nil || len(ms.Points) != len(s.Points) {
+				continue
+			}
+			if first {
+				first = false
+				for i := range s.Points {
+					s.Points[i].Up, s.Points[i].Down = 0, 0
+				}
+				s.TotalUp, s.TotalDown, s.Total, s.HasData = 0, 0, 0, false
+			}
+			for i := range s.Points {
+				s.Points[i].Up += ms.Points[i].Up
+				s.Points[i].Down += ms.Points[i].Down
+			}
+			s.TotalUp, s.TotalDown, s.Total = s.TotalUp+ms.TotalUp, s.TotalDown+ms.TotalDown, s.Total+ms.Total
+			s.HasData = s.HasData || ms.HasData
+		}
 	}
 	httpx.OK(w, s)
 	return nil

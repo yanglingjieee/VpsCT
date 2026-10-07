@@ -28,10 +28,15 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	out := deploy(landing, "落地", 26903, "www.example.com")
 	trojan := c.do("POST", "/api/v1/servers/"+itoa(entry["id"])+"/nodes", map[string]any{"name": "trojan", "protocol": "trojan", "port": 8443}, 201)
 
-	if got := c.do("GET", "/api/v1/lines/candidates", nil, 200)["list"].([]any); len(got) != 2 {
-		t.Fatalf("only VLESS listeners can be shared: %v", got)
+	snell := c.do("POST", "/api/v1/servers/"+itoa(entry["id"])+"/nodes", map[string]any{"name": "snell", "protocol": "snell", "port": 9443}, 201)
+	got := c.do("GET", "/api/v1/lines/candidates", nil, 200)["list"].([]any)
+	if len(got) != 3 || got[2].(map[string]any)["protocol"] != "trojan" || got[2].(map[string]any)["landing"] != false || got[0].(map[string]any)["landing"] != true {
+		t.Fatalf("every multi-user inbound can be an entry, only some a landing: %v", got)
 	}
-	c.do("POST", "/api/v1/lines", map[string]any{"name": "坏", "entry_node_id": trojan["id"]}, 400)
+	// One port, one identity: such an inbound cannot serve several users.
+	c.do("POST", "/api/v1/lines", map[string]any{"name": "坏", "entry_node_id": snell["id"]}, 400)
+	// A relay cannot verify a landing that depends on a certificate.
+	c.do("POST", "/api/v1/lines", map[string]any{"name": "坏", "entry_node_id": in["id"], "landing_node_id": trojan["id"]}, 400)
 	direct := c.do("POST", "/api/v1/lines", map[string]any{"name": "直连", "entry_node_id": in["id"], "sort_order": 1}, 201)
 	relay := c.do("POST", "/api/v1/lines", map[string]any{"name": "家宽", "entry_node_id": in["id"], "landing_node_id": out["id"], "sort_order": 2}, 201)
 	if relay["entry_server"] != "entry" || relay["landing_server"] != "landing" || direct["users"].(float64) != 0 {

@@ -19,6 +19,10 @@ type LineView struct {
 	// Problem is set when a node of the line can no longer be shared.
 	Problem string `json:"problem,omitempty"`
 	Users   int    `json:"users"`
+	// What every user together carried on each machine of the line in the
+	// last 30 days.
+	EntryBytes   int64 `json:"entry_bytes"`
+	LandingBytes int64 `json:"landing_bytes"`
 }
 
 type lineNode struct {
@@ -28,6 +32,9 @@ type lineNode struct {
 	ServerName string `json:"server_name"`
 	ListenPort int    `json:"listen_port"`
 	SNI        string `json:"sni"`
+	Protocol   string `json:"protocol"`
+	// Landing: an entry server can relay to this inbound.
+	Landing bool `json:"landing"`
 }
 
 func (a *API) lineViews(r *http.Request, lines []domain.Line) []LineView {
@@ -39,6 +46,20 @@ func (a *API) lineViews(r *http.Request, lines []domain.Line) []LineView {
 		}
 	}
 	shares, _ := a.Store.ListShares(ctx, nil)
+	type side struct {
+		line    int64
+		landing bool
+	}
+	carried := map[side]int64{}
+	if summaries, err := a.Store.NodeTrafficSummaries(ctx, 30); err == nil {
+		if members, err := a.Store.ListNodes(ctx, store.NodeFilter{Source: domain.NodeDeployed, IncludeRevoked: true}); err == nil {
+			for _, m := range members {
+				if m.LineID != nil {
+					carried[side{*m.LineID, m.Landing}] += summaries[m.ID].Total
+				}
+			}
+		}
+	}
 	describe := func(id int64) (name, server, problem string) {
 		n, err := a.Store.GetNode(ctx, id)
 		if err != nil {
@@ -56,7 +77,7 @@ func (a *API) lineViews(r *http.Request, lines []domain.Line) []LineView {
 	}
 	out := make([]LineView, 0, len(lines))
 	for _, l := range lines {
-		v := LineView{Line: l}
+		v := LineView{Line: l, EntryBytes: carried[side{l.ID, false}], LandingBytes: carried[side{l.ID, true}]}
 		v.EntryName, v.EntryServer, v.Problem = describe(l.EntryNodeID)
 		if l.LandingNodeID != nil {
 			var problem string
@@ -111,7 +132,8 @@ func (a *API) lineCandidates(w http.ResponseWriter, r *http.Request) error {
 		if store.LineNodeUsable(n) != nil {
 			continue
 		}
-		out = append(out, lineNode{ID: n.ID, Name: n.Name, ServerID: *n.ServerID, ServerName: servers[*n.ServerID], ListenPort: n.ListenPort, SNI: nodeSNI(n)})
+		out = append(out, lineNode{ID: n.ID, Name: n.Name, ServerID: *n.ServerID, ServerName: servers[*n.ServerID], ListenPort: n.ListenPort, SNI: nodeSNI(n),
+			Protocol: n.Protocol, Landing: domain.ProtocolLanding(n.Protocol)})
 	}
 	httpx.OK(w, out)
 	return nil

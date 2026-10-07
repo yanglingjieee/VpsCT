@@ -466,6 +466,8 @@ func (a *API) routes() {
 	a.handle("GET /api/v1/settings/core-upgrade", adminAccess, a.coreUpgradeStatus)
 	a.handle("PUT /api/v1/settings", adminAccess, a.putSettings)
 	a.handle("POST /api/v1/settings/telegram/test", adminAccess, a.testTelegram)
+	a.handle("GET /api/v1/settings/telegram/status", adminAccess, a.telegramStatus)
+	a.handle("GET /api/v1/settings/telegram/chats", adminAccess, a.telegramChats)
 	a.handle("GET /api/v1/audit", adminAccess, a.listAudit)
 	a.handle("GET /api/v1/bans", adminAccess, a.listBans)
 	a.handle("POST /api/v1/bans", adminAccess, a.createBan)
