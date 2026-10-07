@@ -436,8 +436,8 @@ func TestLinesOnOtherProtocols(t *testing.T) {
 			relays++
 			r := n.Relay
 			serverKey := param(t, ss.ServerParams, "password")
-			if r == nil || r.Protocol != "ss" || r.Server != "99.0.0.9" || r.Port != 26903 || !strings.HasPrefix(r.Password, serverKey+":") {
-				t.Fatalf("shadowsocks relay target: %+v", r)
+			if r == nil || r.Protocol != "ss" || r.Server != "99.0.0.9" || r.Port != 26903 || !strings.HasPrefix(r.Password, serverKey+":") || r.UDPOverTCP {
+				t.Fatalf("shadowsocks relay target, UDP as UDP unless the landing says otherwise: %+v", r)
 			}
 			userKey := strings.TrimPrefix(r.Password, serverKey+":")
 			found := false
@@ -453,6 +453,19 @@ func TestLinesOnOtherProtocols(t *testing.T) {
 	}
 	if relays != 2 || len(entry) != 3+4 || len(landing) != 2+2 {
 		t.Fatalf("entry %d landing %d relays %d", len(entry), len(landing), relays)
+	}
+	// A landing whose forwarded UDP port is unreliable takes UDP inside TCP.
+	landingSrv.UDPOverTCP = true
+	if err := st.UpdateServer(ctx, &landingSrv); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SyncLines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range load(entrySrv) {
+		if n.AttachTo == trojan.ID && (n.Relay == nil || !n.Relay.UDPOverTCP || n.Relay.Validate() != nil) {
+			t.Fatalf("relay to a UDP-over-TCP landing: %+v", n.Relay)
+		}
 	}
 	sub, _ := st.GetSubscriptionByShare(ctx, a.ID)
 	r, bundle, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatMihomo)

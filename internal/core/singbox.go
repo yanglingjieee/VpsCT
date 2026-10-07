@@ -301,6 +301,9 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 				relay := map[string]any{"tag": memberOut, "server": r.Server, "server_port": r.Port, "routing_mark": memberMark}
 				if r.Protocol == "ss" {
 					relay["type"], relay["method"], relay["password"] = "shadowsocks", r.Method, r.Password
+					if r.UDPOverTCP {
+						relay["udp_over_tcp"] = map[string]any{"enabled": true, "version": 2}
+					}
 				} else {
 					relay["type"], relay["uuid"], relay["flow"], relay["packet_encoding"] = "vless", r.UUID, firstNonEmpty(r.Flow, "xtls-rprx-vision"), "xudp"
 					relay["tls"] = map[string]any{

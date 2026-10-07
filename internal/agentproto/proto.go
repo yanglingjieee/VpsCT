@@ -255,9 +255,11 @@ type RelaySpec struct {
 	ServerName string `json:"server_name,omitempty"`
 	PublicKey  string `json:"public_key,omitempty"`
 	ShortID    string `json:"short_id,omitempty"`
-	// Shadowsocks 2022: Password is "server key:user key".
-	Method   string `json:"method,omitempty"`
-	Password string `json:"password,omitempty"`
+	// Shadowsocks 2022: Password is "server key:user key". UDPOverTCP sends
+	// UDP inside the TCP connection instead of to the landing's UDP port.
+	Method     string `json:"method,omitempty"`
+	Password   string `json:"password,omitempty"`
+	UDPOverTCP bool   `json:"udp_over_tcp,omitempty"`
 }
 
 // CoreVersion pins a downloadable core binary.

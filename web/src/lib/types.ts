@@ -185,6 +185,7 @@ export interface Server {
   prefer_ipv6: boolean;
   ingress_ack: boolean;
   strict_source: boolean;
+  udp_over_tcp: boolean;
   cert_mode: string;
   enabled: boolean;
   created_at: string;

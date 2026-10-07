@@ -457,11 +457,13 @@ func (b *Builder) relayTarget(ctx context.Context, member domain.Node, line doma
 		if json.Unmarshal(s.ServerParams, &cred) != nil || json.Unmarshal(landing.ServerParams, &srv) != nil {
 			return nil
 		}
+		server, err := b.Store.GetServer(ctx, *landing.ServerID)
+		if err != nil {
+			return nil
+		}
 		host := landing.Server
 		if host == "" {
-			if server, err := b.Store.GetServer(ctx, *landing.ServerID); err == nil {
-				host = server.PublicHost
-			}
+			host = server.PublicHost
 		}
 		str := func(m map[string]any, k string) string { v, _ := m[k].(string); return v }
 		r := &agentproto.RelaySpec{Server: host, Port: landing.ListenPort}
@@ -472,6 +474,7 @@ func (b *Builder) relayTarget(ctx context.Context, member domain.Node, line doma
 		case domain.ProtocolShadowsocks:
 			r.Protocol, r.Method = "ss", str(srv, "method")
 			r.Password = str(srv, "password") + ":" + str(cred, "password")
+			r.UDPOverTCP = server.UDPOverTCP
 		default:
 			return nil
 		}

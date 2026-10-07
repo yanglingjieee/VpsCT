@@ -244,13 +244,17 @@ func (a *API) putSettings(w http.ResponseWriter, r *http.Request) error {
 			}
 			v = token
 		}
-		if k == domain.SettingTelegramChatID {
-			if problem := notify.CheckChat(v); problem != "" {
-				return httpx.BadRequest(problem)
-			}
-		}
 		values[k] = v
 		changed = append(changed, k)
+	}
+	if chat, ok := values[domain.SettingTelegramChatID]; ok {
+		token, saving := values[domain.SettingTelegramToken]
+		if !saving {
+			token = a.Store.GetSetting(r.Context(), domain.SettingTelegramToken, "")
+		}
+		if problem := notify.CheckChat(chat, token); problem != "" {
+			return httpx.BadRequest(problem)
+		}
 	}
 	if err := a.Store.SetSettings(r.Context(), values); err != nil {
 		if errors.Is(err, store.ErrNetworkCoreVersion) {
@@ -285,12 +289,13 @@ func (a *API) testTelegram(w http.ResponseWriter, r *http.Request) error {
 // telegramStatus tells the settings page which bot the saved token is, so a
 // wrong token shows up before anything depends on it.
 func (a *API) telegramStatus(w http.ResponseWriter, r *http.Request) error {
-	out := map[string]any{"configured": false, "bot": "", "error": "", "chat_id": a.Store.GetSetting(r.Context(), domain.SettingTelegramChatID, "")}
+	out := map[string]any{"configured": false, "bot": "", "bot_url": "", "error": "", "chat_error": "", "chat_id": a.Store.GetSetting(r.Context(), domain.SettingTelegramChatID, "")}
 	if a.Notify != nil {
 		bot, err := a.Notify.Bot(r.Context())
 		switch {
 		case err == nil:
-			out["configured"], out["bot"] = true, bot
+			out["configured"], out["bot"], out["bot_url"] = true, bot, "https://t.me/"+strings.TrimPrefix(bot, "@")
+			out["chat_error"] = a.Notify.ChatProblem(r.Context(), bot)
 		case !errors.Is(err, notify.ErrNotConfigured):
 			out["configured"], out["error"] = true, err.Error()
 		}

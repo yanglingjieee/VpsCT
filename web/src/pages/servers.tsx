@@ -29,14 +29,15 @@ interface ServerForm {
   ip_pref: "ipv4" | "ipv6" | "ipv4_only";
   ingress_ack: boolean;
   strict_source: boolean;
+  udp_over_tcp: boolean;
   cert_mode: string;
   enabled: boolean;
 }
 
-const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", core_mode: "lean", ip_pref: "ipv4", ingress_ack: false, strict_source: false, cert_mode: "self_signed", enabled: true };
+const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", core_mode: "lean", ip_pref: "ipv4", ingress_ack: false, strict_source: false, udp_over_tcp: false, cert_mode: "self_signed", enabled: true };
 
 function toForm(s: Server): ServerForm {
-  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, core_mode: s.core_mode, ip_pref: s.ipv4_only ? "ipv4_only" : s.prefer_ipv6 ? "ipv6" : "ipv4", ingress_ack: s.ingress_ack, strict_source: s.strict_source, cert_mode: s.cert_mode, enabled: s.enabled };
+  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, core_mode: s.core_mode, ip_pref: s.ipv4_only ? "ipv4_only" : s.prefer_ipv6 ? "ipv6" : "ipv4", ingress_ack: s.ingress_ack, strict_source: s.strict_source, udp_over_tcp: s.udp_over_tcp, cert_mode: s.cert_mode, enabled: s.enabled };
 }
 
 function toPayload(f: ServerForm) {
@@ -88,6 +89,7 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
         <div className="flex flex-col gap-3 sm:col-span-2">
           <Switch checked={f.ingress_ack} onChange={(v) => set("ingress_ack", v)} label="这台机器上另有防火墙，节点端口由我自己放行（不再提示）" />
           <Switch checked={f.strict_source} onChange={(v) => set("strict_source", v)} label="作为落地机时，只接受入口机 IP 发来的中转（机器经过地址转换、看不到真实来源时不要开）" />
+          <Switch checked={f.udp_over_tcp} onChange={(v) => set("udp_over_tcp", v)} label="作为 Shadowsocks 落地机时，中转来的 UDP 并进 TCP 连接（这台机器的 UDP 端口映射丢包时再开；不开则 UDP 走 UDP）" />
           <Switch checked={f.enabled} onChange={(v) => set("enabled", v)} label="启用（关闭后这台机器上的入站全部停止）" />
         </div>
         <Field label="备注" className="sm:col-span-2"><Textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} /></Field>

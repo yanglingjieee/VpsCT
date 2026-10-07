@@ -144,6 +144,7 @@ type serverInput struct {
 	PreferIPv6    bool     `json:"prefer_ipv6"`
 	IngressAck    bool     `json:"ingress_ack"`
 	StrictSource  bool     `json:"strict_source"`
+	UDPOverTCP    bool     `json:"udp_over_tcp"`
 	CertMode      string   `json:"cert_mode"`
 	Enabled       *bool    `json:"enabled"`
 }
@@ -190,6 +191,7 @@ func (in serverInput) apply(s *domain.Server) error {
 	s.PreferIPv6 = in.PreferIPv6
 	s.IngressAck = in.IngressAck
 	s.StrictSource = in.StrictSource
+	s.UDPOverTCP = in.UDPOverTCP
 	if in.Enabled != nil {
 		s.Enabled = *in.Enabled
 	}

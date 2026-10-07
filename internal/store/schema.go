@@ -715,4 +715,7 @@ ALTER TABLE sessions ADD COLUMN security_version INTEGER NOT NULL DEFAULT 0;`,
  ALTER TABLE shares ADD COLUMN line_ids TEXT NOT NULL DEFAULT '[]';
  ALTER TABLE shares ADD COLUMN delivery TEXT NOT NULL DEFAULT 'profile' CHECK(delivery IN ('profile','nodes'));
  ALTER TABLE shares ADD COLUMN ruleset_id INTEGER REFERENCES rulesets(id) ON DELETE SET NULL;`,
+	// v32: a landing whose forwarded UDP port loses packets takes relayed
+	// UDP inside the relay's TCP connection instead.
+	`ALTER TABLE servers ADD COLUMN udp_over_tcp INTEGER NOT NULL DEFAULT 0 CHECK(udp_over_tcp IN (0,1));`,
 }

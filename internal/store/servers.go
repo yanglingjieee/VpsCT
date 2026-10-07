@@ -7,14 +7,14 @@ import (
 	"ctlvps/internal/domain"
 )
 
-const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, cert_mode, enabled, created_at, updated_at`
+const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, udp_over_tcp, cert_mode, enabled, created_at, updated_at`
 
 func scanServer(sc interface{ Scan(...any) error }) (domain.Server, error) {
 	var v domain.Server
 	var tags, created, updated string
-	var ipv4Only, preferIPv6, ingressAck, strictSource, enabled int
+	var ipv4Only, preferIPv6, ingressAck, strictSource, udpOverTCP, enabled int
 	if err := sc.Scan(&v.ID, &v.Name, &v.Region, &v.PublicHost, &tags, &v.Notes, &v.QuotaBytes, &v.QuotaResetDay, &v.QuotaBilling,
-		&v.CoreMode, &ipv4Only, &preferIPv6, &ingressAck, &strictSource, &v.CertMode, &enabled, &created, &updated); err != nil {
+		&v.CoreMode, &ipv4Only, &preferIPv6, &ingressAck, &strictSource, &udpOverTCP, &v.CertMode, &enabled, &created, &updated); err != nil {
 		return v, err
 	}
 	v.Tags = jsonList[string](tags)
@@ -22,6 +22,7 @@ func scanServer(sc interface{ Scan(...any) error }) (domain.Server, error) {
 	v.PreferIPv6 = preferIPv6 == 1
 	v.IngressAck = ingressAck == 1
 	v.StrictSource = strictSource == 1
+	v.UDPOverTCP = udpOverTCP == 1
 	v.Enabled = enabled == 1
 	v.CreatedAt = parseTime(created)
 	v.UpdatedAt = parseTime(updated)
@@ -44,9 +45,9 @@ func (s *Store) CreateServer(ctx context.Context, v *domain.Server) error {
 		v.Tags = []string{}
 	}
 	return s.Tx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,cert_mode,enabled,created_at,updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), v.CertMode, b2i(v.Enabled), fmtTime(now), fmtTime(now))
+		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,udp_over_tcp,cert_mode,enabled,created_at,updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), fmtTime(now))
 		if err != nil {
 			return err
 		}
@@ -63,8 +64,8 @@ func (s *Store) UpdateServer(ctx context.Context, v *domain.Server) error {
 	if v.Tags == nil {
 		v.Tags = []string{}
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE servers SET name=?, region=?, public_host=?, tags=?, notes=?, quota_bytes=?, quota_reset_day=?, quota_billing=?, core_mode=?, ipv4_only=?, prefer_ipv6=?, ingress_ack=?, strict_source=?, cert_mode=?, enabled=?, updated_at=? WHERE id=?`,
-		v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), v.CertMode, b2i(v.Enabled), fmtTime(now), v.ID)
+	_, err := s.db.ExecContext(ctx, `UPDATE servers SET name=?, region=?, public_host=?, tags=?, notes=?, quota_bytes=?, quota_reset_day=?, quota_billing=?, core_mode=?, ipv4_only=?, prefer_ipv6=?, ingress_ack=?, strict_source=?, udp_over_tcp=?, cert_mode=?, enabled=?, updated_at=? WHERE id=?`,
+		v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), v.ID)
 	v.UpdatedAt = now
 	return err
 }

@@ -44,24 +44,40 @@ func NormalizeToken(raw string) (string, bool) {
 	return t, t != ""
 }
 
-// CheckChat explains what is wrong with a chat id, or returns "". A chat id
-// is a number (negative for groups) or the @name of a public channel; the
-// bot's own @name is the usual mistake.
-func CheckChat(raw string) string {
+// CheckChat explains what is wrong with a chat id for the bot behind token,
+// or returns "". A chat id is a number (negative for groups) or the @name of
+// a public channel; the bot's own @name or number is the usual mistake.
+func CheckChat(raw, token string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
+	}
+	if id, _, ok := strings.Cut(token, ":"); ok && raw == id {
+		return selfChat
 	}
 	if _, err := strconv.ParseInt(raw, 10, 64); err == nil {
 		return ""
 	}
 	if strings.HasPrefix(raw, "@") && len(raw) > 5 {
 		if strings.HasSuffix(strings.ToLower(raw), "bot") {
-			return "这是机器人自己的用户名，不是 Chat ID。Chat ID 是一串数字：先在 Telegram 里给机器人发一条消息，再点「自动获取」"
+			return selfChat
 		}
 		return ""
 	}
 	return "Chat ID 应该是一串数字（群组是负数），或公开频道的 @名称"
+}
+
+const selfChat = "Chat ID 填成了机器人自己。它应该是你的数字 ID：先在 Telegram 里给机器人发一条消息，再点「自动获取」"
+
+// ChatProblem explains why the saved chat cannot receive this bot's messages,
+// or returns "". Telegram itself only says so when a message is sent, so a
+// chat saved before the check existed would otherwise look fine.
+func (t *Telegram) ChatProblem(ctx context.Context, bot string) string {
+	token, chat := t.Config(ctx)
+	if chat = strings.TrimSpace(chat); bot != "" && strings.EqualFold(chat, bot) {
+		return selfChat
+	}
+	return CheckChat(chat, token)
 }
 
 // ErrNotConfigured means no token or chat has been saved yet.
@@ -99,8 +115,11 @@ func (t *Telegram) call(ctx context.Context, token, method string, payload any, 
 		return errors.New("Bot Token 不对：到 @BotFather 重新复制（形如 123456789:AA…）")
 	case strings.Contains(d, "chat not found"):
 		return errors.New("找不到这个 Chat ID：先在 Telegram 里给机器人发一条消息，再点「自动获取」")
-	case strings.Contains(d, "bots can't send messages to bots"):
-		return errors.New("Chat ID 填成了机器人自己：先在 Telegram 里给机器人发一条消息，再点「自动获取」")
+	case strings.Contains(d, "can't send messages to"):
+		// "bot can't send messages to bots" / "the bot can't send messages to the bot"
+		return errors.New(selfChat)
+	case resp.StatusCode == http.StatusConflict:
+		return errors.New("这个机器人正被别的程序收消息（webhook 或另一个程序），自动获取不了：Chat ID 请手动填数字")
 	case strings.Contains(d, "blocked by the user") || strings.Contains(d, "can't initiate conversation"):
 		return errors.New("机器人还不能给你发消息：在 Telegram 里打开机器人，点 Start")
 	case strings.Contains(d, "not enough rights") || strings.Contains(d, "kicked") || strings.Contains(d, "not a member"):

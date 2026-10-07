@@ -19,9 +19,9 @@ func TestTokenAndChatAreUnderstoodAsPasted(t *testing.T) {
 	if _, ok := NormalizeToken("@my_bot"); ok {
 		t.Fatal("a bot name is not a token")
 	}
-	for chat, ok := range map[string]bool{"123456": true, "-1001234567890": true, "@my_channel": true, "@tudou_bot": false, "t.me/x": false, "": true} {
-		if (CheckChat(chat) == "") != ok {
-			t.Fatalf("chat %q: %q", chat, CheckChat(chat))
+	for chat, ok := range map[string]bool{"123456": true, "-1001234567890": true, "@my_channel": true, "@tudou_bot": false, "t.me/x": false, "": true, "1234567890": false} {
+		if (CheckChat(chat, token) == "") != ok {
+			t.Fatalf("chat %q: %q", chat, CheckChat(chat, token))
 		}
 	}
 }
@@ -45,6 +45,11 @@ func TestFailuresSayWhatToDo(t *testing.T) {
 				_, _ = w.Write([]byte(`{"ok":true,"result":{}}`))
 				return
 			}
+			if in["chat_id"] == "@tudou_bot" || in["chat_id"] == "1234567890" {
+				w.WriteHeader(403)
+				_, _ = w.Write([]byte(`{"ok":false,"error_code":403,"description":"Forbidden: the bot can't send messages to the bot"}`))
+				return
+			}
 			w.WriteHeader(400)
 			_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: chat not found"}`))
 		}
@@ -64,9 +69,21 @@ func TestFailuresSayWhatToDo(t *testing.T) {
 	if err != nil || len(chats) != 2 || chats[0].ID != "42" || chats[1].Title != "家" {
 		t.Fatalf("chats, newest first and once each: %+v %v", chats, err)
 	}
-	cfg[1] = "@tudou_bot"
+	if p := tg.ChatProblem(ctx, "@tudou_bot"); p != "" {
+		t.Fatalf("a working chat has no problem: %q", p)
+	}
+	for _, self := range []string{"@tudou_bot", "@Tudou_Bot", "1234567890"} {
+		cfg[1] = self
+		if p := tg.ChatProblem(ctx, "@tudou_bot"); !strings.Contains(p, "机器人自己") {
+			t.Fatalf("chat %q is the bot itself: %q", self, p)
+		}
+	}
+	if err := tg.Test(ctx, "site"); err == nil || !strings.Contains(err.Error(), "机器人自己") {
+		t.Fatalf("Telegram's own refusal must be put in words: %v", err)
+	}
+	cfg[1] = "777"
 	if err := tg.Test(ctx, "site"); err == nil || !strings.Contains(err.Error(), "Chat ID") {
-		t.Fatalf("wrong chat must be explained: %v", err)
+		t.Fatalf("unknown chat must be explained: %v", err)
 	}
 	cfg[0] = "junk"
 	if err := tg.Test(ctx, "site"); err == nil || !strings.Contains(err.Error(), "Bot Token") || strings.Contains(err.Error(), "junk") {

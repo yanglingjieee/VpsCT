@@ -206,10 +206,25 @@ func TestMembersOnEveryShareableProtocol(t *testing.T) {
 	if len(routed) != 7 || routed["n200"] != "node-200-relay" {
 		t.Fatalf("every member needs its own route: %v", routed)
 	}
-	for _, o := range cfg["outbounds"].([]any) {
-		if m := o.(map[string]any); m["tag"] == "node-200-relay" && (m["type"] != "shadowsocks" || m["method"] != "2022-blake3-aes-128-gcm" || m["routing_mark"] == nil) {
-			t.Fatalf("shadowsocks relay: %v", m)
+	relayOut := func(cfg map[string]any) map[string]any {
+		for _, o := range cfg["outbounds"].([]any) {
+			if m := o.(map[string]any); m["tag"] == "node-200-relay" {
+				return m
+			}
 		}
+		return nil
+	}
+	if m := relayOut(cfg); m["type"] != "shadowsocks" || m["method"] != "2022-blake3-aes-128-gcm" || m["routing_mark"] == nil || m["udp_over_tcp"] != nil {
+		t.Fatalf("shadowsocks relay, UDP as UDP: %v", m)
+	}
+	relayed.Relay.UDPOverTCP = true
+	nodes[len(nodes)-1] = relayed
+	ds.Nodes = nodes
+	if cfg, err = d.BuildResourceConfig(ds, nodes, nil); err != nil {
+		t.Fatal(err)
+	}
+	if uot, _ := relayOut(cfg)["udp_over_tcp"].(map[string]any); uot["enabled"] != true || uot["version"] != 2 {
+		t.Fatalf("a landing with an unreliable UDP port takes UDP inside TCP: %v", relayOut(cfg))
 	}
 	if out := os.Getenv("CTLVPS_DUMP_PROTOCOL_CONFIG"); out != "" {
 		data, _ := json.MarshalIndent(cfg, "", "  ")

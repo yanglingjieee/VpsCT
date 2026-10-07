@@ -102,11 +102,15 @@ type Server struct {
 	// StrictSource: as a landing, accept relay credentials only from the
 	// entry server\'s address. Off by default: a host behind address
 	// translation never sees that address and would refuse every relay.
-	StrictSource bool      `json:"strict_source"`
-	CertMode     string    `json:"cert_mode"` // self_signed|acme|external
-	Enabled      bool      `json:"enabled"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	StrictSource bool `json:"strict_source"`
+	// UDPOverTCP: as a Shadowsocks landing, take relayed UDP inside the
+	// relay's TCP connection. Off by default, so UDP stays UDP end to end;
+	// on for a host whose forwarded UDP port drops the start of new flows.
+	UDPOverTCP bool      `json:"udp_over_tcp"`
+	CertMode   string    `json:"cert_mode"` // self_signed|acme|external
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // AgentStatus is derived from the last heartbeat.

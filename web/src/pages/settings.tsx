@@ -99,7 +99,7 @@ function GeneralTab() {
   );
 }
 
-interface TelegramStatus { configured: boolean; bot: string; error: string; chat_id: string }
+interface TelegramStatus { configured: boolean; bot: string; bot_url: string; error: string; chat_error: string; chat_id: string }
 interface TelegramChat { id: string; title: string; type: string }
 
 function NotifyTab() {
@@ -118,7 +118,7 @@ function NotifyTab() {
   const detect = useMutation({
     mutationFn: () => get<TelegramChat[]>("/api/v1/settings/telegram/chats"),
     onSuccess: (list) => {
-      if (!list.length) { toast.error("机器人还没收到过消息", "在 Telegram 里打开你的机器人，点 Start 或随便发一句话，再点一次"); return; }
+      if (!list.length) { toast.error("机器人还没收到过消息", `在 Telegram 里打开 ${status.data?.bot || "你的机器人"}，点 Start 或随便发一句话，再点一次`); return; }
       if (list.length === 1) { save.mutate({ "telegram.chat_id": list[0].id }, { onSuccess: () => toast.success(`已选定：${list[0].title || list[0].id}`) }); return; }
       setChats(list);
     },
@@ -135,7 +135,10 @@ function NotifyTab() {
           <Input className="mono" value={s.value("telegram.bot_token")} onChange={(e) => s.set("telegram.bot_token", e.target.value)} placeholder="123456789:AA…" />
         </Field>
         {st?.configured && (
-          <p className={cn("-mt-2 text-xs", st.error ? "text-destructive" : "text-emerald-600 dark:text-emerald-400")}>{st.error || `已连接到机器人 ${st.bot}`}</p>
+          <p className={cn("-mt-2 text-xs", st.error ? "text-destructive" : "text-emerald-600 dark:text-emerald-400")}>
+            {st.error || `已连接到机器人 ${st.bot}`}
+            {!st.error && st.bot_url && <a className="ml-2 text-primary underline-offset-2 hover:underline" href={st.bot_url} target="_blank" rel="noreferrer">在 Telegram 里打开</a>}
+          </p>
         )}
         <Field label="Chat ID" hint="通知发给谁。是一串数字，不是机器人的名字：先在 Telegram 里给机器人发一条消息，再点「自动获取」">
           <div className="flex gap-2">
@@ -143,6 +146,7 @@ function NotifyTab() {
             <Button variant="outline" className="shrink-0" onClick={() => detect.mutate()} loading={detect.isPending || save.isPending} disabled={s.dirty || !st?.configured || !!st.error}>自动获取</Button>
           </div>
         </Field>
+        {!s.dirty && st?.chat_error && <p className="-mt-2 text-xs text-destructive">{st.chat_error}</p>}
         {chats && (
           <div className="-mt-2 rounded-xl border">
             {chats.map((c) => (

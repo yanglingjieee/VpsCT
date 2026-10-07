@@ -18,6 +18,8 @@ func TestTelegramSettingsAreCheckedWhenSaved(t *testing.T) {
 	// The bot's own name is the usual mistake for a chat id.
 	c.do("PUT", "/api/v1/settings", map[string]any{"telegram.chat_id": "@my_alert_bot"}, 400)
 	c.do("PUT", "/api/v1/settings", map[string]any{"telegram.chat_id": "not a chat"}, 400)
+	// So is the bot's own number, which is the first half of its token.
+	c.do("PUT", "/api/v1/settings", map[string]any{"telegram.chat_id": "1234567890"}, 400)
 	c.do("PUT", "/api/v1/settings", map[string]any{"telegram.chat_id": "-1001234567890"}, 200)
 	c.do("PUT", "/api/v1/settings", map[string]any{"telegram.chat_id": ""}, 200)
 }

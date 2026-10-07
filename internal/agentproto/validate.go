@@ -251,7 +251,7 @@ func (r RelaySpec) Validate() error {
 	}
 	switch r.Protocol {
 	case "", "vless":
-		if len(r.UUID) != 36 || !relayHost.MatchString(r.ServerName) || !relayKey.MatchString(r.PublicKey) || !relayHex.MatchString(r.ShortID) || r.Method != "" || r.Password != "" {
+		if len(r.UUID) != 36 || !relayHost.MatchString(r.ServerName) || !relayKey.MatchString(r.PublicKey) || !relayHex.MatchString(r.ShortID) || r.Method != "" || r.Password != "" || r.UDPOverTCP {
 			return errors.New("中转落地参数无效")
 		}
 		if r.Flow != "" && r.Flow != "xtls-rprx-vision" {
