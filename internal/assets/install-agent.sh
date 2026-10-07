@@ -125,25 +125,40 @@ if [[ "$UPDATE" -eq 1 ]]; then
   exit 0
 fi
 
-echo "==> installing dependencies"
-if command -v apt-get >/dev/null 2>&1; then
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq >/dev/null
-  apt-get install -y -qq nftables curl ca-certificates unzip tar chrony >/dev/null
-elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y -q nftables curl ca-certificates unzip tar chrony >/dev/null
-elif command -v yum >/dev/null 2>&1; then
-  yum install -y -q nftables curl ca-certificates unzip tar chrony >/dev/null
-elif command -v apk >/dev/null 2>&1; then
-  apk add --no-cache nftables curl ca-certificates unzip tar chrony >/dev/null
+# Only what is missing is installed. A host that already has the tools and
+# already keeps its clock (any time daemon, or a container's host) is left as
+# it is: joining the panel must not swap its packages or services.
+clock_kept() {
+  systemd-detect-virt --container --quiet 2>/dev/null && return 0
+  systemctl is-active --quiet chrony chronyd systemd-timesyncd ntp ntpd ntpsec openntpd 2>/dev/null
+}
+PKGS=()
+command -v nft >/dev/null 2>&1 || PKGS+=(nftables)
+for tool in curl unzip tar; do
+  command -v "$tool" >/dev/null 2>&1 || PKGS+=("$tool")
+done
+WANT_CHRONY=0
+clock_kept || { PKGS+=(chrony); WANT_CHRONY=1; }
+if [[ ${#PKGS[@]} -gt 0 ]]; then
+  echo "==> installing dependencies: ${PKGS[*]}"
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null
+    apt-get install -y -qq ca-certificates "${PKGS[@]}" >/dev/null
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y -q ca-certificates "${PKGS[@]}" >/dev/null
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y -q ca-certificates "${PKGS[@]}" >/dev/null
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache ca-certificates "${PKGS[@]}" >/dev/null
+  fi
 fi
 # nftables.service is deliberately left alone: starting it loads the
 # distribution's /etc/nftables.conf, which on Debian begins with
 # "flush ruleset" and would wipe rules other software (or a container host)
 # installed. The agent only needs the nft command; it loads its own tables.
 command -v nft >/dev/null 2>&1 || { echo "nft command not found after installing nftables" >&2; exit 1; }
-# A container cannot set the clock; its host keeps the time.
-if ! systemd-detect-virt --container --quiet 2>/dev/null; then
+if [[ "$WANT_CHRONY" -eq 1 ]]; then
   systemctl enable --now chrony >/dev/null 2>&1 || systemctl enable --now chronyd >/dev/null 2>&1 || true
 fi
 

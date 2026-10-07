@@ -134,6 +134,7 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 			}
 		}
 		// disabled server: converge to "nothing running"
+		watchOnly(ds)
 		ds.Hash = Hash(ds)
 		return ds, nil
 	}
@@ -338,8 +339,18 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 			}
 		}
 	}
+	watchOnly(ds)
 	ds.Hash = Hash(ds)
 	return ds, nil
+}
+
+// watchOnly spares a server that carries nothing: with no inbound and no
+// forward it is only observed, and the agent leaves its host as it found it
+// (congestion control, time daemon).
+func watchOnly(ds *agentproto.DesiredState) {
+	if len(ds.Nodes) == 0 && len(ds.Forwards) == 0 {
+		ds.Tuning.EnableBBR, ds.Tuning.Chrony = false, false
+	}
 }
 
 func needsCert(protocol string) bool {

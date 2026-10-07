@@ -427,7 +427,7 @@ export function ServerDetailPage() {
           <div className="space-y-3">
             <Pre className="whitespace-pre-wrap break-all">{enroll.install_command}</Pre>
             <Button onClick={async () => { await copyText(enroll.install_command); toast.success("已复制"); }}><Copy className="h-4 w-4" /> 复制命令</Button>
-            <p className="text-xs text-muted-foreground">脚本会安装 nftables/chrony，下载 ctlvps-agent，注册并以 systemd 常驻。安装完成后此页面会显示「在线」。</p>
+            <p className="text-xs text-muted-foreground">脚本只补装机器上缺少的依赖（nft；没有时间同步服务时装 chrony），下载 ctlvps-agent，注册并以 systemd 常驻。只做监控、不建入站的机器，agent 不改动主机的内核参数和时间同步。安装完成后此页面会显示「在线」。</p>
           </div>
         )}
       </Dialog>
