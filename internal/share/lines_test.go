@@ -361,3 +361,110 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 		t.Fatalf("lines %d members %d", len(lines), len(f.members(t, *sansan)))
 	}
 }
+
+func TestLinesOnOtherProtocols(t *testing.T) {
+	m, st, entrySrv, _ := setup(t)
+	ctx := context.Background()
+	landingSrv := domain.Server{Name: "landing-server", PublicHost: "99.0.0.9", Enabled: true, CoreMode: domain.CoreModeStable}
+	if err := st.CreateServer(ctx, &landingSrv); err != nil {
+		t.Fatal(err)
+	}
+	deploy := func(srv domain.Server, proto string, port int) domain.Node {
+		n, err := provision.NewNode(srv, "", provision.Options{Name: proto, Protocol: proto, Port: port})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.CreateNode(ctx, &n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	trojan, hy2 := deploy(entrySrv, "trojan", 443), deploy(entrySrv, "hysteria2", 8443)
+	ss, snell, tuic := deploy(landingSrv, "ss", 26903), deploy(entrySrv, "snell", 9443), deploy(landingSrv, "tuic", 26904)
+	line := func(name string, entry domain.Node, landing *domain.Node) error {
+		l := domain.Line{Name: name, EntryNodeID: entry.ID, Enabled: true}
+		if landing != nil {
+			l.LandingNodeID = &landing.ID
+		}
+		return st.CreateLine(ctx, &l)
+	}
+	if err := line("snell", snell, nil); err == nil {
+		t.Fatal("a single-identity protocol cannot be shared by users")
+	}
+	if err := line("tls landing", trojan, &tuic); err == nil {
+		t.Fatal("a landing that needs a certificate the relay cannot verify was accepted")
+	}
+	for name, err := range map[string]error{"direct hy2": line("QUIC", hy2, nil), "relay": line("Relay", trojan, &ss)} {
+		if err != nil {
+			t.Fatal(name, err)
+		}
+	}
+	a := &domain.Share{Name: "a", LineMode: domain.ShareLinesAll}
+	b := &domain.Share{Name: "b", LineMode: domain.ShareLinesAll}
+	for _, sh := range []*domain.Share{a, b} {
+		if _, err := m.Create(ctx, sh); err != nil {
+			t.Fatal(err)
+		}
+	}
+	load := func(server domain.Server) map[int64]agentproto.NodeSpec {
+		rec, err := st.LatestDesiredState(ctx, server.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ds, _ := desired.Load(rec)
+		if err := agentproto.ValidateDesired(ds, server.ID, 0, ""); err != nil {
+			t.Fatalf("agents would refuse this state: %v", err)
+		}
+		out := map[int64]agentproto.NodeSpec{}
+		for _, n := range ds.Nodes {
+			out[n.NodeID] = n
+		}
+		return out
+	}
+	entry, landing := load(entrySrv), load(landingSrv)
+	relays, secrets := 0, map[string]bool{}
+	for _, n := range entry {
+		if n.AttachTo == 0 {
+			continue
+		}
+		pw, _ := n.Params["password"].(string)
+		if pw == "" || secrets[pw] {
+			t.Fatalf("every user needs their own secret on %s: %+v", n.Protocol, n.Params)
+		}
+		secrets[pw] = true
+		if n.AttachTo == trojan.ID {
+			relays++
+			r := n.Relay
+			serverKey := param(t, ss.ServerParams, "password")
+			if r == nil || r.Protocol != "ss" || r.Server != "99.0.0.9" || r.Port != 26903 || !strings.HasPrefix(r.Password, serverKey+":") {
+				t.Fatalf("shadowsocks relay target: %+v", r)
+			}
+			userKey := strings.TrimPrefix(r.Password, serverKey+":")
+			found := false
+			for _, l := range landing {
+				if l.AttachTo == ss.ID && l.Params["password"] == userKey {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("the relay must use this user's own key on the landing")
+			}
+		}
+	}
+	if relays != 2 || len(entry) != 3+4 || len(landing) != 2+2 {
+		t.Fatalf("entry %d landing %d relays %d", len(entry), len(landing), relays)
+	}
+	sub, _ := st.GetSubscriptionByShare(ctx, a.ID)
+	r, bundle, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatMihomo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(r.Body)
+	if strings.Join(bundle.AllProxyNames(), "|") != "QUIC|Relay" || !strings.Contains(body, "type: hysteria2") || !strings.Contains(body, "type: trojan") || strings.Contains(body, "99.0.0.9") {
+		t.Fatalf("profile: %v\n%s", bundle.AllProxyNames(), body[:min(len(body), 1500)])
+	}
+	uris, _, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatURIList)
+	if err != nil || !strings.Contains(string(uris.Body), "hysteria2://") || !strings.Contains(string(uris.Body), "trojan://") {
+		t.Fatalf("node links: %v\n%s", err, uris.Body)
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"ctlvps/internal/agentproto"
 	"ctlvps/internal/domain"
+	"ctlvps/internal/provision"
 )
 
 const (
@@ -118,17 +119,6 @@ func TestMembersShareOneInbound(t *testing.T) {
 	}
 }
 
-func TestMembersNeedSharedListener(t *testing.T) {
-	dir := t.TempDir()
-	srv := domain.Server{ID: 1, Name: "la", PublicHost: "203.0.113.10", CoreMode: domain.CoreModeStable, CertMode: "self_signed"}
-	ds := &agentproto.DesiredState{ServerID: 1, PublicHost: "203.0.113.10", Tuning: agentproto.Tuning{GoMemLimitMB: 128}}
-	d := NewSingBox(Paths{BinDir: dir, ConfDir: dir, LogDir: dir, CertDir: filepath.Join(dir, "certs"), DataDir: dir}, NewSystemd())
-	nodes := []agentproto.NodeSpec{specFor(t, srv, 5, "trojan", 443, false), memberSpec(20, 5, "11111111-1111-4111-8111-111111111111")}
-	if _, err := d.BuildResourceConfig(ds, nodes, nil); err == nil {
-		t.Fatal("member accepted on a listener that cannot tell users apart")
-	}
-}
-
 func TestOptimisticDNSOnModernCores(t *testing.T) {
 	dir := t.TempDir()
 	srv := domain.Server{ID: 1, Name: "la", PublicHost: "203.0.113.10", CoreMode: domain.CoreModeStable, CertMode: "self_signed"}
@@ -144,4 +134,92 @@ func TestOptimisticDNSOnModernCores(t *testing.T) {
 			t.Fatalf("sing-box %q: optimistic DNS cache = %v, want %v", version, got, want)
 		}
 	}
+}
+
+func TestMembersOnEveryShareableProtocol(t *testing.T) {
+	dir := t.TempDir()
+	srv := domain.Server{ID: 1, Name: "la", PublicHost: "203.0.113.10", CoreMode: domain.CoreModeStable, CertMode: "self_signed"}
+	ds := &agentproto.DesiredState{ServerID: 1, PublicHost: "203.0.113.10", Tuning: agentproto.Tuning{GoMemLimitMB: 128}}
+	uuid, pw := "55555555-5555-4555-8555-555555555555", "member-password-0123456789"
+	key := provision.SS2022Key(16)
+	creds := map[string]map[string]any{
+		"vless": {"uuid": uuid, "flow": "xtls-rprx-vision"}, "trojan": {"password": pw}, "anytls": {"password": pw},
+		"hysteria2": {"password": pw}, "tuic": {"uuid": uuid, "password": pw}, "ss": {"password": key},
+	}
+	var nodes []agentproto.NodeSpec
+	id := int64(10)
+	parents := map[string]int64{}
+	for _, proto := range []string{"vless", "trojan", "anytls", "hysteria2", "tuic", "ss"} {
+		id++
+		parents[proto] = id
+		nodes = append(nodes, specFor(t, srv, id, proto, 20000+int(id), false))
+		nodes = append(nodes, agentproto.NodeSpec{NodeID: id + 100, Protocol: proto, Core: "singbox", AttachTo: id, Params: creds[proto]})
+	}
+	// One user of the trojan listener leaves through a Shadowsocks landing.
+	relayed := agentproto.NodeSpec{NodeID: 200, Protocol: "trojan", Core: "singbox", AttachTo: parents["trojan"], Params: map[string]any{"password": pw + "x"},
+		Relay: &agentproto.RelaySpec{Protocol: "ss", Server: "203.0.113.77", Port: 26903, Method: "2022-blake3-aes-128-gcm", Password: provision.SS2022Key(16) + ":" + key}}
+	if err := relayed.Relay.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	nodes = append(nodes, relayed)
+	ds.Nodes = nodes
+	ds.Revision, ds.Hash = 1, ""
+	ds.Hash = agentproto.ContentHash(ds)
+	if err := agentproto.ValidateDesired(ds, 1, 0, ""); err != nil {
+		t.Fatal("agents would refuse members on these protocols:", err)
+	}
+	d := NewSingBox(Paths{BinDir: dir, ConfDir: dir, LogDir: dir, CertDir: filepath.Join(dir, "certs"), DataDir: dir}, NewSystemd())
+	cfg, err := d.BuildResourceConfig(ds, nodes, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTag := map[string]map[string]any{}
+	for _, in := range cfg["inbounds"].([]any) {
+		m := in.(map[string]any)
+		byTag[m["tag"].(string)] = m
+	}
+	for proto, pid := range parents {
+		in := byTag[InboundTag(pid)]
+		users, _ := in["users"].([]any)
+		var names []string
+		for _, u := range users {
+			names = append(names, u.(map[string]any)["name"].(string))
+		}
+		want := []string{MemberUser(pid), MemberUser(pid + 100)}
+		if proto == "ss" {
+			want = want[1:] // the server key alone no longer authenticates
+		}
+		if proto == "trojan" {
+			want = append(want, MemberUser(200))
+		}
+		if got, _ := json.Marshal(names); string(got) != string(mustJSON(want)) {
+			t.Fatalf("%s users: %s, want %s", proto, got, mustJSON(want))
+		}
+	}
+	routed := map[string]string{}
+	for _, r := range cfg["route"].(map[string]any)["rules"].([]any) {
+		m := r.(map[string]any)
+		if u, ok := m["auth_user"].([]string); ok && m["action"] == "route" {
+			routed[u[0]] = m["outbound"].(string)
+		}
+	}
+	if len(routed) != 7 || routed["n200"] != "node-200-relay" {
+		t.Fatalf("every member needs its own route: %v", routed)
+	}
+	for _, o := range cfg["outbounds"].([]any) {
+		if m := o.(map[string]any); m["tag"] == "node-200-relay" && (m["type"] != "shadowsocks" || m["method"] != "2022-blake3-aes-128-gcm" || m["routing_mark"] == nil) {
+			t.Fatalf("shadowsocks relay: %v", m)
+		}
+	}
+	if out := os.Getenv("CTLVPS_DUMP_PROTOCOL_CONFIG"); out != "" {
+		data, _ := json.MarshalIndent(cfg, "", "  ")
+		if err := os.WriteFile(out, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func mustJSON(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }

@@ -292,7 +292,7 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 				}
 			}
 		}
-		if needsCert(n.Protocol) {
+		if needsCert(n.Protocol) && n.AttachNodeID == nil { // a member uses its listener's certificate
 			mode := fmt.Sprint(spec.Params["cert_mode"])
 			if mode == "" || mode == "<nil>" {
 				mode = server.CertMode
@@ -464,8 +464,17 @@ func (b *Builder) relayTarget(ctx context.Context, member domain.Node, line doma
 			}
 		}
 		str := func(m map[string]any, k string) string { v, _ := m[k].(string); return v }
-		r := &agentproto.RelaySpec{Server: host, Port: landing.ListenPort, UUID: str(cred, "uuid"), Flow: str(cred, "flow"),
-			ServerName: str(srv, "handshake_server"), PublicKey: str(srv, "reality_public_key"), ShortID: str(srv, "reality_short_id")}
+		r := &agentproto.RelaySpec{Server: host, Port: landing.ListenPort}
+		switch landing.Protocol {
+		case domain.ProtocolVLESS:
+			r.UUID, r.Flow = str(cred, "uuid"), str(cred, "flow")
+			r.ServerName, r.PublicKey, r.ShortID = str(srv, "handshake_server"), str(srv, "reality_public_key"), str(srv, "reality_short_id")
+		case domain.ProtocolShadowsocks:
+			r.Protocol, r.Method = "ss", str(srv, "method")
+			r.Password = str(srv, "password") + ":" + str(cred, "password")
+		default:
+			return nil
+		}
 		if r.Validate() != nil {
 			return nil
 		}

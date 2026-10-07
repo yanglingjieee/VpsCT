@@ -53,15 +53,15 @@ func (s *Store) GetLine(ctx context.Context, id int64) (domain.Line, error) {
 	return v, err
 }
 
-// checkLine accepts only listeners several users can share: deployed VLESS
-// nodes that own a port and keep the default egress.
+// checkLine accepts only listeners several users can share: deployed nodes
+// of a multi-user protocol that own a port and keep the default egress.
 func (s *Store) checkLine(ctx context.Context, v *domain.Line) error {
 	v.Name = strings.TrimSpace(v.Name)
 	if v.Name == "" {
 		return errors.New("线路名称不能为空")
 	}
 	if v.LandingNodeID != nil && *v.LandingNodeID == v.EntryNodeID {
-		return errors.New("入口和落地不能是同一个节点")
+		return errors.New("入口和落地不能是同一个入站")
 	}
 	ids := []int64{v.EntryNodeID}
 	if v.LandingNodeID != nil {
@@ -74,10 +74,13 @@ func (s *Store) checkLine(ctx context.Context, v *domain.Line) error {
 		}
 		n, err := s.GetNode(ctx, id)
 		if err != nil {
-			return errors.New(role + "节点不存在")
+			return errors.New(role + "入站不存在")
 		}
 		if err := LineNodeUsable(n); err != nil {
-			return errors.New(role + "节点" + err.Error())
+			return errors.New(role + "入站" + err.Error())
+		}
+		if i == 1 && !domain.ProtocolLanding(n.Protocol) {
+			return errors.New("落地入站只能是 VLESS Reality 或 Shadowsocks 2022：入口机要能不靠证书确认落地机的身份")
 		}
 	}
 	return nil
@@ -87,11 +90,11 @@ func (s *Store) checkLine(ctx context.Context, v *domain.Line) error {
 func LineNodeUsable(n domain.Node) error {
 	switch {
 	case n.Source != domain.NodeDeployed || n.ServerID == nil || n.AttachNodeID != nil || n.ShareID != nil:
-		return errors.New("必须是自己部署的节点，不能是分享专属或导入的节点")
+		return errors.New("必须是在服务器上新建的入站")
 	case n.Revoked:
 		return errors.New("已撤销")
-	case n.Protocol != domain.ProtocolVLESS:
-		return errors.New("必须是 VLESS 节点（其它协议暂不支持多人共用一个入口）")
+	case !domain.ProtocolShareable(n.Protocol):
+		return errors.New("用的协议一个端口只有一个身份（Snell、mieru、WireGuard），不能多人共用")
 	case n.Network != nil:
 		return errors.New("设置了自定义监听或出口，暂不支持多人共用")
 	}

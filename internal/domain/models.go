@@ -631,6 +631,24 @@ const (
 	ProtocolShadowTLS   = "shadowtls"
 )
 
+// ProtocolShareable reports whether one listener of the protocol can serve
+// several users, each with their own credential that the core can tell
+// apart. Snell, mieru and WireGuard inbounds have a single identity.
+func ProtocolShareable(p string) bool {
+	switch p {
+	case ProtocolVLESS, ProtocolTrojan, ProtocolAnyTLS, ProtocolHysteria2, ProtocolTUIC, ProtocolShadowsocks:
+		return true
+	}
+	return false
+}
+
+// ProtocolLanding reports whether an entry server can relay to an inbound of
+// the protocol: the link must authenticate the landing without a certificate
+// a relay could only skip. Reality pins a public key; Shadowsocks 2022 a key.
+func ProtocolLanding(p string) bool {
+	return p == ProtocolVLESS || p == ProtocolShadowsocks
+}
+
 // DeployableProtocols lists what ctlvps can create on a managed VPS.
 var DeployableProtocols = []string{
 	ProtocolVLESS, ProtocolAnyTLS, ProtocolHysteria2, ProtocolTUIC,

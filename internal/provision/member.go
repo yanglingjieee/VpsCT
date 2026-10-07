@@ -9,10 +9,10 @@ import (
 )
 
 // NewMember builds one more credential on parent's listener: the same address
-// and handshake, its own UUID. The caller assigns the share and persists it.
+// and transport, its own secret. The caller assigns the share and persists it.
 func NewMember(parent domain.Node, name string) (domain.Node, error) {
-	if parent.ID == 0 || parent.ServerID == nil || parent.Protocol != domain.ProtocolVLESS || parent.AttachNodeID != nil {
-		return domain.Node{}, errors.New("只有自己部署的 VLESS 节点可以多人共用")
+	if parent.ID == 0 || parent.ServerID == nil || parent.AttachNodeID != nil || !domain.ProtocolShareable(parent.Protocol) {
+		return domain.Node{}, errors.New("这个入站不能多人共用")
 	}
 	id := parent.ID
 	m := domain.Node{Name: name, Protocol: parent.Protocol, Source: domain.NodeDeployed, ServerID: parent.ServerID,
@@ -24,8 +24,8 @@ func NewMember(parent domain.Node, name string) (domain.Node, error) {
 }
 
 // SyncMember copies the listener's current connection parameters into m. The
-// member keeps its UUID unless rotate is set or it has none yet. It reports
-// through the node itself; callers compare before saving.
+// member keeps its secret unless rotate is set or it has none yet. Callers
+// compare the node before and after to decide whether to save.
 func SyncMember(m *domain.Node, parent domain.Node, rotate bool) error {
 	client := map[string]any{}
 	if err := json.Unmarshal(parent.Params, &client); err != nil {
@@ -35,25 +35,53 @@ func SyncMember(m *domain.Node, parent domain.Node, rotate bool) error {
 	_ = json.Unmarshal(parent.ServerParams, &parentSrv)
 	own := map[string]any{}
 	_ = json.Unmarshal(m.ServerParams, &own)
-	uuid, _ := own["uuid"].(string)
-	if rotate || len(uuid) != 36 {
-		uuid = UUID()
+	// keep returns the member's existing secret of at least n characters, or
+	// a fresh one.
+	keep := func(key string, n int, fresh func() string) string {
+		if v, _ := own[key].(string); !rotate && len(v) >= n {
+			return v
+		}
+		return fresh()
 	}
-	flow, _ := parentSrv["flow"].(string)
-	if flow == "" {
-		flow = "xtls-rprx-vision"
+	srv := map[string]any{}
+	switch parent.Protocol {
+	case domain.ProtocolVLESS:
+		srv["uuid"] = keep("uuid", 36, UUID)
+		flow, _ := parentSrv["flow"].(string)
+		if flow == "" {
+			flow = "xtls-rprx-vision"
+		}
+		srv["flow"] = flow
+		client["uuid"] = srv["uuid"]
+	case domain.ProtocolTrojan, domain.ProtocolAnyTLS, domain.ProtocolHysteria2:
+		srv["password"] = keep("password", 16, func() string { return Password(16) })
+		client["password"] = srv["password"]
+	case domain.ProtocolTUIC:
+		srv["uuid"] = keep("uuid", 36, UUID)
+		srv["password"] = keep("password", 16, func() string { return Password(16) })
+		client["uuid"], client["password"] = srv["uuid"], srv["password"]
+	case domain.ProtocolShadowsocks:
+		// Shadowsocks 2022 multi-user: the client proves both the server's
+		// key and its own, written "server:user".
+		serverKey, _ := parentSrv["password"].(string)
+		if serverKey == "" {
+			return errors.New("入站缺少 Shadowsocks 密钥")
+		}
+		srv["password"] = keep("password", 20, func() string { return SS2022Key(16) })
+		client["password"] = serverKey + ":" + srv["password"].(string)
+	default:
+		return errors.New("这个入站不能多人共用")
 	}
-	client["uuid"] = uuid
 	params, err := json.Marshal(client)
 	if err != nil {
 		return err
 	}
-	srv, err := json.Marshal(map[string]any{"uuid": uuid, "flow": flow})
+	raw, err := json.Marshal(srv)
 	if err != nil {
 		return err
 	}
-	m.Params, m.ServerParams = params, srv
-	m.Server, m.Port, m.ListenPort, m.Core = parent.Server, parent.Port, 0, parent.Core
+	m.Params, m.ServerParams = params, raw
+	m.Protocol, m.Server, m.Port, m.ListenPort, m.Core = parent.Protocol, parent.Server, parent.Port, 0, parent.Core
 	return nil
 }
 

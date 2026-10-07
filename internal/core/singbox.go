@@ -144,6 +144,23 @@ func InboundTag(nodeID int64) string { return fmt.Sprintf("node-%d", nodeID) }
 // member's outbound by it.
 func MemberUser(nodeID int64) string { return fmt.Sprintf("n%d", nodeID) }
 
+// memberUser renders a member as a user of its listener's protocol, or nil
+// when that protocol cannot tell users apart.
+func memberUser(protocol string, m agentproto.NodeSpec) map[string]any {
+	u := map[string]any{"name": MemberUser(m.NodeID)}
+	switch protocol {
+	case "vless":
+		u["uuid"], u["flow"] = str(m.Params, "uuid"), firstNonEmpty(str(m.Params, "flow"), "xtls-rprx-vision")
+	case "tuic":
+		u["uuid"], u["password"] = str(m.Params, "uuid"), str(m.Params, "password")
+	case "trojan", "anytls", "hysteria2", "shadowsocks", "ss":
+		u["password"] = str(m.Params, "password")
+	default:
+		return nil
+	}
+	return u
+}
+
 // BuildConfig renders the sing-box server configuration for nodes.
 func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.NodeSpec) (map[string]any, error) {
 	inbounds := []any{}
@@ -268,7 +285,8 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			if m.Blocked {
 				continue // unknown credential: the handshake is refused
 			}
-			if n.Protocol != "vless" || n.Network != nil {
+			user := memberUser(n.Protocol, m)
+			if user == nil || n.Network != nil {
 				return nil, fmt.Errorf("node %d: 该入口不支持多人共用", n.NodeID)
 			}
 			memberMark, err := nft.NodeMark(m.NodeID)
@@ -280,16 +298,18 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 				// The destination travels on as given, so names are resolved
 				// by the landing, with the landing's address preference.
 				memberOut = fmt.Sprintf("node-%d-relay", m.NodeID)
-				outbounds = append(outbounds, map[string]any{
-					"type": "vless", "tag": memberOut, "server": r.Server, "server_port": r.Port,
-					"uuid": r.UUID, "flow": firstNonEmpty(r.Flow, "xtls-rprx-vision"), "packet_encoding": "xudp",
-					"tls": map[string]any{
+				relay := map[string]any{"tag": memberOut, "server": r.Server, "server_port": r.Port, "routing_mark": memberMark}
+				if r.Protocol == "ss" {
+					relay["type"], relay["method"], relay["password"] = "shadowsocks", r.Method, r.Password
+				} else {
+					relay["type"], relay["uuid"], relay["flow"], relay["packet_encoding"] = "vless", r.UUID, firstNonEmpty(r.Flow, "xtls-rprx-vision"), "xudp"
+					relay["tls"] = map[string]any{
 						"enabled": true, "server_name": r.ServerName,
 						"utls":    map[string]any{"enabled": true, "fingerprint": "chrome"},
 						"reality": map[string]any{"enabled": true, "public_key": r.PublicKey, "short_id": r.ShortID},
-					},
-					"routing_mark": memberMark,
-				})
+					}
+				}
+				outbounds = append(outbounds, relay)
 			} else {
 				outbounds = append(outbounds, map[string]any{"type": "direct", "tag": memberOut, "routing_mark": memberMark})
 			}
@@ -316,7 +336,7 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			} else {
 				rules = append(rules, allow)
 			}
-			users = append(users, map[string]any{"name": MemberUser(m.NodeID), "uuid": str(m.Params, "uuid"), "flow": firstNonEmpty(str(m.Params, "flow"), "xtls-rprx-vision")})
+			users = append(users, user)
 		}
 		rules = append(rules, map[string]any{"inbound": []string{InboundTag(n.NodeID)}, "action": "route", "outbound": outTag})
 		if n.ConnlogEnabled {
@@ -359,7 +379,7 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			}
 		case "anytls":
 			in["type"] = "anytls"
-			in["users"] = []any{map[string]any{"password": str(p, "password")}}
+			in["users"] = append([]any{map[string]any{"name": MemberUser(n.NodeID), "password": str(p, "password")}}, users...)
 			tls, err := d.tlsBlock(n, ds, nil)
 			if err != nil {
 				return nil, err
@@ -367,7 +387,7 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			in["tls"] = tls
 		case "hysteria2":
 			in["type"] = "hysteria2"
-			in["users"] = []any{map[string]any{"password": str(p, "password")}}
+			in["users"] = append([]any{map[string]any{"name": MemberUser(n.NodeID), "password": str(p, "password")}}, users...)
 			if op := str(p, "obfs_password"); op != "" {
 				in["obfs"] = map[string]any{"type": "salamander", "password": op}
 			}
@@ -381,7 +401,7 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			in["tls"] = tls
 		case "tuic":
 			in["type"] = "tuic"
-			in["users"] = []any{map[string]any{"uuid": str(p, "uuid"), "password": str(p, "password")}}
+			in["users"] = append([]any{map[string]any{"name": MemberUser(n.NodeID), "uuid": str(p, "uuid"), "password": str(p, "password")}}, users...)
 			in["congestion_control"] = "bbr"
 			tls, err := d.tlsBlock(n, ds, []string{"h3"})
 			if err != nil {
@@ -390,7 +410,7 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			in["tls"] = tls
 		case "trojan":
 			in["type"] = "trojan"
-			in["users"] = []any{map[string]any{"password": str(p, "password")}}
+			in["users"] = append([]any{map[string]any{"name": MemberUser(n.NodeID), "password": str(p, "password")}}, users...)
 			tls, err := d.tlsBlock(n, ds, nil)
 			if err != nil {
 				return nil, err
@@ -400,6 +420,11 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 			in["type"] = "shadowsocks"
 			in["method"] = firstNonEmpty(str(p, "method"), "2022-blake3-aes-128-gcm")
 			in["password"] = str(p, "password")
+			// With users, the inbound's key identifies the server and every
+			// client adds its own; the bare server key then opens nothing.
+			if len(users) > 0 {
+				in["users"] = users
+			}
 		default:
 			return nil, fmt.Errorf("sing-box driver: unsupported protocol %s", n.Protocol)
 		}

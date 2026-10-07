@@ -57,18 +57,18 @@ func ValidateDesired(d *DesiredState, serverID, lastRevision int64, lastHash str
 	ports := map[int]bool{}
 	// Members share their parent's listener, so the parent must be a plain
 	// VLESS inbound: one user list, default egress, no port of the member's own.
-	shareable := map[int64]bool{}
+	shareable := map[int64]string{}
 	for _, n := range d.Nodes {
-		if n.AttachTo == 0 && n.Core == "singbox" && n.Protocol == "vless" && n.Network == nil {
-			shareable[n.NodeID] = true
+		if n.AttachTo == 0 && n.Core == "singbox" && n.Network == nil && memberProtocol(n.Protocol) {
+			shareable[n.NodeID] = n.Protocol
 		}
 	}
 	for _, n := range d.Nodes {
 		if n.AttachTo != 0 {
-			if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort != 0 || !shareable[n.AttachTo] || n.Core != "singbox" || n.Protocol != "vless" || n.Network != nil || n.Cert != nil {
+			if n.NodeID < 1 || ids[n.NodeID] || n.ListenPort != 0 || shareable[n.AttachTo] == "" || shareable[n.AttachTo] != n.Protocol || n.Core != "singbox" || n.Network != nil || n.Cert != nil {
 				return errors.New("成员节点标识或所属入口无效")
 			}
-			if id, _ := n.Params["uuid"].(string); len(id) != 36 {
+			if !memberCredential(n.Protocol, n.Params) {
 				return errors.New("成员节点缺少凭据")
 			}
 			if len(n.AllowFrom) > 32 {
@@ -235,6 +235,9 @@ var (
 	relayHost = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
 	relayKey  = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 	relayHex  = regexp.MustCompile(`^([0-9a-f]{2}){0,8}$`)
+	// Shadowsocks 2022 only: the older ciphers have no per-user keys.
+	relaySSMethod = regexp.MustCompile(`^2022-blake3-(aes-128-gcm|aes-256-gcm|chacha20-poly1305)$`)
+	relaySSKeys   = regexp.MustCompile(`^[A-Za-z0-9+/]{20,48}={0,2}:[A-Za-z0-9+/]{20,48}={0,2}$`)
 )
 
 // Validate accepts only a complete, well-formed landing: a relay member with
@@ -243,11 +246,48 @@ func (r RelaySpec) Validate() error {
 	if _, err := netip.ParseAddr(r.Server); err != nil && !relayHost.MatchString(r.Server) {
 		return errors.New("中转落地地址无效")
 	}
-	if r.Port < 1 || r.Port > 65535 || len(r.UUID) != 36 || !relayHost.MatchString(r.ServerName) || !relayKey.MatchString(r.PublicKey) || !relayHex.MatchString(r.ShortID) {
+	if r.Port < 1 || r.Port > 65535 {
 		return errors.New("中转落地参数无效")
 	}
-	if r.Flow != "" && r.Flow != "xtls-rprx-vision" {
-		return errors.New("中转落地流控无效")
+	switch r.Protocol {
+	case "", "vless":
+		if len(r.UUID) != 36 || !relayHost.MatchString(r.ServerName) || !relayKey.MatchString(r.PublicKey) || !relayHex.MatchString(r.ShortID) || r.Method != "" || r.Password != "" {
+			return errors.New("中转落地参数无效")
+		}
+		if r.Flow != "" && r.Flow != "xtls-rprx-vision" {
+			return errors.New("中转落地流控无效")
+		}
+	case "ss":
+		if !relaySSMethod.MatchString(r.Method) || !relaySSKeys.MatchString(r.Password) || r.UUID != "" || r.PublicKey != "" {
+			return errors.New("中转落地参数无效")
+		}
+	default:
+		return errors.New("中转落地协议不支持")
 	}
 	return nil
+}
+
+// memberProtocol lists the inbounds that can tell several users apart.
+func memberProtocol(p string) bool {
+	switch p {
+	case "vless", "trojan", "anytls", "hysteria2", "tuic", "ss", "shadowsocks":
+		return true
+	}
+	return false
+}
+
+// memberCredential checks that a member carries its own secret.
+func memberCredential(protocol string, p map[string]any) bool {
+	has := func(k string, n int) bool { v, _ := p[k].(string); return len(v) >= n }
+	switch protocol {
+	case "vless":
+		return has("uuid", 36)
+	case "tuic":
+		return has("uuid", 36) && has("password", 16)
+	case "trojan", "anytls", "hysteria2":
+		return has("password", 16)
+	case "ss", "shadowsocks":
+		return has("password", 20)
+	}
+	return false
 }

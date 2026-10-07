@@ -242,16 +242,22 @@ type NodeSpec struct {
 	Cert           *CertSpec      `json:"cert,omitempty"`
 }
 
-// RelaySpec is the landing a relay member forwards to: a VLESS Reality
-// listener on another server and this user's credential there.
+// RelaySpec is the landing a relay member forwards to: a listener on another
+// server and this user's credential there. Protocol is "vless" (Reality; the
+// default) or "ss" (Shadowsocks 2022).
 type RelaySpec struct {
-	Server     string `json:"server"`
-	Port       int    `json:"port"`
-	UUID       string `json:"uuid"`
+	Protocol string `json:"protocol,omitempty"`
+	Server   string `json:"server"`
+	Port     int    `json:"port"`
+	// VLESS Reality
+	UUID       string `json:"uuid,omitempty"`
 	Flow       string `json:"flow,omitempty"`
-	ServerName string `json:"server_name"`
-	PublicKey  string `json:"public_key"`
-	ShortID    string `json:"short_id"`
+	ServerName string `json:"server_name,omitempty"`
+	PublicKey  string `json:"public_key,omitempty"`
+	ShortID    string `json:"short_id,omitempty"`
+	// Shadowsocks 2022: Password is "server key:user key".
+	Method   string `json:"method,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 // CoreVersion pins a downloadable core binary.
