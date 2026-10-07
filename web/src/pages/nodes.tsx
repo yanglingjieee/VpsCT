@@ -328,6 +328,7 @@ function ExternalSection({ externals, nodes, onImport }: { externals: ExternalSu
   const toast = useToast();
   const invalidate = useInvalidate();
   const [confirm, setConfirm] = React.useState<{ ext?: ExternalSubscription; node?: Node } | null>(null);
+  const [rename, setRename] = React.useState<Node | null>(null);
   const sync = useMutation({ mutationFn: (e: ExternalSubscription) => post(`/api/v1/externals/${e.id}/sync`), onSuccess: () => { toast.success("已同步"); invalidate(); }, onError: (e) => toast.fromError(e) });
   const removeExt = useMutation({ mutationFn: (e: ExternalSubscription) => del(`/api/v1/externals/${e.id}`), onSuccess: () => { toast.success("订阅源已删除"); setConfirm(null); invalidate(); }, onError: (e) => toast.fromError(e) });
   const removeNode = useMutation({ mutationFn: (n: Node) => del(`/api/v1/nodes/${n.id}`), onSuccess: () => { toast.success("节点已删除"); setConfirm(null); invalidate(); }, onError: (e) => toast.fromError(e) });
@@ -361,11 +362,14 @@ function ExternalSection({ externals, nodes, onImport }: { externals: ExternalSu
             <tbody>
               {nodes.map((n) => (
                 <Tr key={n.id}>
-                  <Td className="font-medium">{n.name}</Td>
+                  <Td className="font-medium">{n.name}{n.upstream_name && <span className="block text-xs font-normal text-muted-foreground">订阅源里叫 {n.upstream_name}</span>}</Td>
                   <Td><Badge variant="outline">{PROTOCOL_LABELS[n.protocol] ?? n.protocol}</Badge></Td>
                   <Td className="text-muted-foreground">{n.server}:{n.port}</Td>
                   <Td className="text-muted-foreground">{n.external_name || "手动添加"}</Td>
-                  <Td><div className="flex justify-end">{!n.external_sub_id && <Button size="sm" variant="ghost" aria-label="删除" className="text-red-500" onClick={() => setConfirm({ node: n })}><Trash2 className="h-4 w-4" /></Button>}</div></Td>
+                  <Td><div className="flex justify-end gap-1">
+                    <Button size="sm" variant="ghost" aria-label="改名" onClick={() => setRename(n)}><Pencil className="h-4 w-4" /></Button>
+                    {!n.external_sub_id && <Button size="sm" variant="ghost" aria-label="删除" className="text-red-500" onClick={() => setConfirm({ node: n })}><Trash2 className="h-4 w-4" /></Button>}
+                  </div></Td>
                 </Tr>
               ))}
             </tbody>
@@ -373,9 +377,33 @@ function ExternalSection({ externals, nodes, onImport }: { externals: ExternalSu
         </Card>
       )}
       <p className="mt-2 text-xs text-muted-foreground">外部节点不经过自己的服务器，没法按用户计量和限额；在用户里可以把它们作为附加节点一起发下去。</p>
+      <RenameDialog node={rename} onClose={() => setRename(null)} />
       <Confirm open={!!confirm?.ext} onClose={() => setConfirm(null)} onConfirm={() => confirm?.ext && removeExt.mutate(confirm.ext)} loading={removeExt.isPending} destructive title={`删除订阅源「${confirm?.ext?.name ?? ""}」？`} description="它带来的节点会一起删除。" />
       <Confirm open={!!confirm?.node} onClose={() => setConfirm(null)} onConfirm={() => confirm?.node && removeNode.mutate(confirm.node)} loading={removeNode.isPending} destructive title={`删除节点「${confirm?.node?.name ?? ""}」？`} description="用到它的用户会在下次更新配置后失去这个节点。" />
     </section>
+  );
+}
+
+// The name is the one users see in their client. A subscription's node keeps
+// it across syncs; everything else about that node stays the feed's.
+function RenameDialog({ node, onClose }: { node: Node | null; onClose: () => void }) {
+  const toast = useToast();
+  const invalidate = useInvalidate();
+  const [name, setName] = React.useState("");
+  React.useEffect(() => { if (node) setName(node.name); }, [node]);
+  const save = useMutation({
+    mutationFn: () => put(`/api/v1/nodes/${node!.id}`, { name: name.trim() }),
+    onSuccess: () => { toast.success("已改名，用户下次更新配置后生效"); invalidate(); onClose(); },
+    onError: (e) => toast.fromError(e),
+  });
+  const feedName = node?.upstream_name || (node?.external_sub_id ? node.name : "");
+  return (
+    <Dialog open={!!node} onClose={onClose} title="给外部节点改名" size="sm"
+      footer={<><Button variant="outline" onClick={onClose}>取消</Button><Button onClick={() => save.mutate()} loading={save.isPending} disabled={!name.trim() || name.trim() === node?.name}>保存</Button></>}>
+      <Field label="名称" hint={feedName ? `订阅源里叫「${feedName}」。以后同步，这个节点仍然用你起的名字。` : "用户在客户端里看到的就是这个名字。"}>
+        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={64} autoFocus />
+      </Field>
+    </Dialog>
   );
 }
 

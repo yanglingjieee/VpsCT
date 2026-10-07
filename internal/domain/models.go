@@ -192,6 +192,7 @@ type Node struct {
 	Core             Core                `json:"core"`
 	ShareID          *int64              `json:"share_id,omitempty"`
 	ExternalSubID    *int64              `json:"external_sub_id,omitempty"`
+	UpstreamName     string              `json:"upstream_name,omitempty"` // what its external subscription calls a node renamed here
 	ChainFrontNodeID *int64              `json:"chain_front_node_id,omitempty"`
 	// AttachNodeID makes this a member node: one more credential on that
 	// node's listener, with its own accounting identity and no port.

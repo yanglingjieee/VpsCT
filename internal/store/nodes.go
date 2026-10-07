@@ -12,7 +12,7 @@ import (
 	"ctlvps/internal/networkconfig"
 )
 
-const nodeCols = `id, name, protocol, server, port, params, server_params, source, server_id, listen_port, core, share_id, external_sub_id, chain_front_node_id, enabled, owner_user_id, tags, sort_order, revoked, attach_node_id, line_id, landing, created_at, updated_at,
+const nodeCols = `id, name, protocol, server, port, params, server_params, source, server_id, listen_port, core, share_id, external_sub_id, chain_front_node_id, enabled, owner_user_id, tags, sort_order, revoked, attach_node_id, line_id, landing, created_at, updated_at, upstream_name,
  (SELECT policy FROM node_networks WHERE node_id=nodes.id),
  (SELECT revision FROM node_networks WHERE node_id=nodes.id)`
 
@@ -24,7 +24,7 @@ func (s *Store) scanNode(sc interface{ Scan(...any) error }) (domain.Node, error
 	var network sql.NullString
 	var networkRevision sql.NullInt64
 	if err := sc.Scan(&n.ID, &n.Name, &n.Protocol, &n.Server, &n.Port, s.scanSecret("nodes.params", &params), s.scanSecret("nodes.server_params", &serverParams), &n.Source, &serverID, &n.ListenPort, &n.Core,
-		&shareID, &extID, &chainID, &enabled, &n.OwnerUserID, &tags, &n.SortOrder, &revoked, &attachID, &lineID, &landing, &created, &updated, &network, &networkRevision); err != nil {
+		&shareID, &extID, &chainID, &enabled, &n.OwnerUserID, &tags, &n.SortOrder, &revoked, &attachID, &lineID, &landing, &created, &updated, &n.UpstreamName, &network, &networkRevision); err != nil {
 		return n, err
 	}
 	n.Params = rawOrEmpty(params)
@@ -143,6 +143,25 @@ func (s *Store) UpdateNode(ctx context.Context, n *domain.Node) error {
 	return err
 }
 
+// RenameImportedNode gives a node from an external subscription a name of
+// its own. What the feed calls it is remembered, so the next sync still
+// recognises the node; naming it as the feed does forgets the difference.
+func (s *Store) RenameImportedNode(ctx context.Context, n *domain.Node, name string) error {
+	upstream := n.UpstreamName
+	if upstream == "" {
+		upstream = n.Name
+	}
+	if name == upstream {
+		upstream = ""
+	}
+	now := s.Now()
+	if _, err := s.db.ExecContext(ctx, `UPDATE nodes SET name=?, upstream_name=?, updated_at=? WHERE id=?`, name, upstream, fmtTime(now), n.ID); err != nil {
+		return err
+	}
+	n.Name, n.UpstreamName, n.UpdatedAt = name, upstream, now
+	return nil
+}
+
 // DeleteNode removes a node.
 func (s *Store) DeleteNode(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM nodes WHERE id=?`, id)
@@ -252,8 +271,9 @@ func (s *Store) ListNodes(ctx context.Context, f NodeFilter) ([]domain.Node, err
 }
 
 // ReplaceExternalNodes atomically swaps the imported node set of one
-// external subscription, preserving ids of nodes whose name is unchanged so
-// that generated subscriptions referencing them keep working.
+// external subscription, preserving ids of nodes whose name in the feed is
+// unchanged so that generated subscriptions referencing them keep working.
+// A node renamed here keeps the name it was given.
 func (s *Store) ReplaceExternalNodes(ctx context.Context, extID int64, fresh []domain.Node) (added, updated, removed int, err error) {
 	err = s.Tx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT `+nodeCols+` FROM nodes WHERE external_sub_id=?`, extID)
@@ -267,7 +287,7 @@ func (s *Store) ReplaceExternalNodes(ctx context.Context, extID int64, fresh []d
 				rows.Close()
 				return err
 			}
-			existing[n.Name] = n
+			existing[feedName(n)] = n
 		}
 		rows.Close()
 		now := fmtTime(s.Now())
@@ -282,6 +302,7 @@ func (s *Store) ReplaceExternalNodes(ctx context.Context, extID int64, fresh []d
 			seen[n.Name] = true
 			if old, ok := existing[n.Name]; ok {
 				n.ID = old.ID
+				n.Name, n.UpstreamName = old.Name, old.UpstreamName
 				n.Tags = old.Tags
 				n.SortOrder = old.SortOrder
 				n.Enabled = old.Enabled
@@ -312,6 +333,14 @@ func (s *Store) ReplaceExternalNodes(ctx context.Context, extID int64, fresh []d
 		return err
 	})
 	return
+}
+
+// feedName is what a node's external subscription calls it.
+func feedName(n domain.Node) string {
+	if n.UpstreamName != "" {
+		return n.UpstreamName
+	}
+	return n.Name
 }
 
 // UsedListenPorts returns ports already allocated on a server.

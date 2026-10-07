@@ -17,6 +17,7 @@ func TestSurgeManagedBody(t *testing.T) {
 		{"/s/test-capability/surge", "https://panel.example.test/s/test-capability/surge"},
 		{"/s/test-capability?format=surge&ignored=value", "https://panel.example.test/s/test-capability?format=surge"},
 		{"/r/test-short", "https://panel.example.test/r/test-short?format=surge"},
+		{"/r/test-short/surge/home.conf", "https://panel.example.test/r/test-short/surge/home.conf"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			u, _ := url.Parse(tc.path)

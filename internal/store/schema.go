@@ -732,4 +732,7 @@ ALTER TABLE sessions ADD COLUMN security_version INTEGER NOT NULL DEFAULT 0;`,
 	// and it lasts until the usage is back under the quota.
 	`ALTER TABLE servers ADD COLUMN quota_stop INTEGER NOT NULL DEFAULT 0 CHECK(quota_stop IN (0,1));
 ALTER TABLE servers ADD COLUMN quota_stopped INTEGER NOT NULL DEFAULT 0 CHECK(quota_stopped IN (0,1));`,
+	// v35: a node that came from an external subscription can be renamed
+	// here; what its feed calls it is kept so that syncs still find it.
+	`ALTER TABLE nodes ADD COLUMN upstream_name TEXT NOT NULL DEFAULT '';`,
 }

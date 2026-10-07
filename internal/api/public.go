@@ -49,21 +49,25 @@ func (a *API) banned(r *http.Request, ip string) bool {
 	return false
 }
 
-// publicSubscription serves /s/{token}[/{format}].
+// publicSubscription serves /s/{token}[/{format}[/{name}]].
 func (a *API) publicSubscription(w http.ResponseWriter, r *http.Request) error {
 	token := r.PathValue("token")
 	format := r.PathValue("format")
 	return a.serve(w, r, token, format, false)
 }
 
-// publicShort serves /r/{code}.
+// publicShort serves /r/{code}[/{format}/{name}].
 func (a *API) publicShort(w http.ResponseWriter, r *http.Request) error {
 	code := r.PathValue("code")
 	sub, err := a.Store.GetSubscriptionByShortCode(r.Context(), code)
 	if err != nil {
 		return httpx.ErrNotFound
 	}
-	return a.serveSub(w, r, sub, r.URL.Query().Get("format"), true)
+	format := r.PathValue("format")
+	if format == "" {
+		format = r.URL.Query().Get("format")
+	}
+	return a.serveSub(w, r, sub, format, true)
 }
 
 func (a *API) serve(w http.ResponseWriter, r *http.Request, token, format string, short bool) error {
@@ -208,7 +212,8 @@ func surgeManagedBody(body []byte, base string, requestURL *url.URL) []byte {
 	u.Path = strings.TrimRight(u.Path, "/") + requestURL.Path
 	u.RawPath = ""
 	u.RawQuery, u.Fragment = "", ""
-	if !strings.HasSuffix(requestURL.Path, "/surge") {
+	// The address may already say the format: /s/<token>/surge[/<name>].
+	if !strings.Contains(requestURL.Path+"/", "/surge/") {
 		u.RawQuery = "format=surge"
 	}
 	// A custom template may already declare a managed URL. Replace it rather

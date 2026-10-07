@@ -192,3 +192,40 @@ func TestDeleteServerRemovesAssociatedNodesAndChains(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRenamedExternalNodeSurvivesSyncs(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	ext := &domain.ExternalSubscription{Name: "airport", URL: "https://x/sub", Enabled: true}
+	if err := s.CreateExternal(ctx, ext); err != nil {
+		t.Fatal(err)
+	}
+	feed := []domain.Node{{Name: "@feed-a1b2", Protocol: "ss", Server: "one.example", Port: 1}, {Name: "plain", Protocol: "ss"}}
+	if _, _, _, err := s.ReplaceExternalNodes(ctx, ext.ID, feed); err != nil {
+		t.Fatal(err)
+	}
+	nodes, _ := s.ListNodes(ctx, NodeFilter{ExternalSubID: &ext.ID})
+	n := nodes[0]
+	if err := s.RenameImportedNode(ctx, &n, "朋友的线路"); err != nil {
+		t.Fatal(err)
+	}
+	// The feed still calls it by its own name, and moves it to another address.
+	feed = []domain.Node{{Name: "@feed-a1b2", Protocol: "ss", Server: "two.example", Port: 2}, {Name: "plain", Protocol: "ss"}}
+	added, updated, removed, err := s.ReplaceExternalNodes(ctx, ext.ID, feed)
+	if err != nil || added != 0 || updated != 2 || removed != 0 {
+		t.Fatalf("sync after rename: %v %d %d %d", err, added, updated, removed)
+	}
+	got, _ := s.GetNode(ctx, n.ID)
+	if got.Name != "朋友的线路" || got.UpstreamName != "@feed-a1b2" || got.Server != "two.example" {
+		t.Fatalf("renamed node after sync: %+v", got)
+	}
+	// Named as the feed names it, there is no difference left to remember.
+	if err := s.RenameImportedNode(ctx, &got, "@feed-a1b2"); err != nil || got.UpstreamName != "" {
+		t.Fatalf("rename back: %v %+v", err, got)
+	}
+	// Gone from the feed, gone here, whatever it was called.
+	_ = s.RenameImportedNode(ctx, &got, "朋友的线路")
+	if _, _, removed, err = s.ReplaceExternalNodes(ctx, ext.ID, feed[1:]); err != nil || removed != 1 {
+		t.Fatalf("removal: %v %d", err, removed)
+	}
+}

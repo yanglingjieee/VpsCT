@@ -94,7 +94,7 @@ export function PersonalPageView() {
             <p className="mt-1 text-xs text-muted-foreground">在装好客户端的设备上打开这个页面，点对应的按钮。线路和规则（{data.rules}）会一起配好，以后自动更新。</p>
             <div className="mt-4 grid gap-2">
               {apps.map((a) => (
-                <a key={a.id} href={a.link(data.url, data.name)} className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-accent/40">
+                <a key={a.id} href={a.link(data.url, data.site_name)} className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-accent/40">
                   <span className="min-w-0"><span className="block font-medium">{a.name}</span><span className="block break-words text-xs text-muted-foreground">{a.platforms}</span></span>
                   <span className="shrink-0 text-sm font-medium text-primary">导入</span>
                 </a>

@@ -223,6 +223,8 @@ export interface Node {
   source: "manual" | "imported" | "deployed" | "chain";
   server_id?: number | null;
   external_sub_id?: number | null;
+  /** What its external subscription calls a node that was renamed here. */
+  upstream_name?: string;
   share_id?: number | null;
   attach_node_id?: number | null;
   line_id?: number | null;

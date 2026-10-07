@@ -4,7 +4,7 @@ import { MaintenancePanel } from "@/components/maintenance";
 import { ServerActions } from "@/components/server-actions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Copy, Gauge, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Gauge, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
 import { del, get, post, put } from "@/lib/api";
 import type { Server, Node, Series } from "@/lib/types";
 import { fmtBytes, fmtAgo, fmtDuration, fmtRate, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, BILLING_LABELS, fmtDate, fmtPeriodDay, fmtResetIn } from "@/lib/utils";
@@ -257,11 +257,12 @@ export function ServerDetailPage() {
       </div>
 
       {tab === "nodes" && <>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <Card className="p-4"><p className="flex items-center gap-1 text-xs text-muted-foreground"><ArrowUp className="h-3 w-3" />实时上行</p><p className="mt-1 text-2xl font-semibold tabular-nums">{m ? fmtRate(m.net_tx_rate) : "-"}</p></Card>
+        <Card className="p-4"><p className="flex items-center gap-1 text-xs text-muted-foreground"><ArrowDown className="h-3 w-3" />实时下行</p><p className="mt-1 text-2xl font-semibold tabular-nums">{m ? fmtRate(m.net_rx_rate) : "-"}</p></Card>
         <Card className="p-4"><p className="text-xs text-muted-foreground">CPU / 负载</p><p className="mt-1 text-xl font-semibold">{m ? `${m.cpu_percent.toFixed(0)}%` : "-"}</p><p className="text-xs text-muted-foreground">load {m?.load1?.toFixed(2) ?? "-"} / {m?.load5?.toFixed(2) ?? "-"}</p></Card>
         <Card className="p-4"><p className="text-xs text-muted-foreground">内存</p><p className="mt-1 text-xl font-semibold">{m?.mem_total ? `${((m.mem_used / m.mem_total) * 100).toFixed(0)}%` : "-"}</p><p className="text-xs text-muted-foreground">{fmtBytes(m?.mem_used)} / {fmtBytes(m?.mem_total)}</p></Card>
-        <Card className="p-4"><p className="text-xs text-muted-foreground">磁盘</p><p className="mt-1 text-xl font-semibold">{m?.disk_total ? `${((m.disk_used / m.disk_total) * 100).toFixed(0)}%` : "-"}</p><p className="text-xs text-muted-foreground">{fmtBytes(m?.disk_used)} / {fmtBytes(m?.disk_total)}</p></Card>
-        <Card className="p-4"><p className="text-xs text-muted-foreground">实时速率</p><p className="mt-1 text-xl font-semibold">{m ? fmtRate(m.net_rx_rate + m.net_tx_rate) : "-"}</p><p className="text-xs text-muted-foreground">入 {fmtRate(m?.net_rx_rate)} · 出 {fmtRate(m?.net_tx_rate)}</p></Card>
+        <Card className="col-span-2 p-4 lg:col-span-1"><p className="text-xs text-muted-foreground">磁盘</p><p className="mt-1 text-xl font-semibold">{m?.disk_total ? `${((m.disk_used / m.disk_total) * 100).toFixed(0)}%` : "-"}</p><p className="text-xs text-muted-foreground">{fmtBytes(m?.disk_used)} / {fmtBytes(m?.disk_total)}</p></Card>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -289,7 +290,7 @@ export function ServerDetailPage() {
             {nodes.isError && <p className="mt-2 text-xs text-destructive">节点列表加载失败，暂时只能查看整台服务器。</p>}
           </CardContent>
         </Card>
-        <Card>
+        <Card className="order-first lg:order-none">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>{s.usage?.next_reset ? "本期流量" : "近 30 天流量"}</CardTitle>
             {s.usage?.next_reset && <Button size="sm" variant="outline" onClick={() => setCalibrate(true)}><Gauge className="h-4 w-4" /> 校正</Button>}
@@ -297,7 +298,7 @@ export function ServerDetailPage() {
           <CardContent>
             {s.usage && (
               <>
-                <p className="text-2xl font-semibold tabular-nums">{fmtBytes(s.usage.billed)}{s.quota_bytes > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground">/ {fmtBytes(s.quota_bytes, 0)} · {s.usage.percent.toFixed(1)}%</span>}</p>
+                <p className="text-3xl font-semibold tabular-nums">{fmtBytes(s.usage.billed)}{s.quota_bytes > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground">/ {fmtBytes(s.quota_bytes, 0)} · {s.usage.percent.toFixed(1)}%</span>}</p>
                 <Progress className="mt-3" value={s.quota_bytes > 0 ? s.usage.percent : 0} />
                 <dl className="mt-4 space-y-1.5 text-xs text-muted-foreground">
                   <div className="flex justify-between gap-3"><dt>怎么算</dt><dd>{BILLING_LABELS[s.usage.billing] ?? s.usage.billing}{s.quota_bytes > 0 ? "" : " · 未设配额"}</dd></div>

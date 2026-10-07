@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"ctlvps/internal/domain"
 	"ctlvps/internal/httpx"
@@ -195,6 +196,17 @@ type nodeInput struct {
 }
 
 func nodeSNI(n domain.Node) string { return provision.SNI(n) }
+
+// validNodeName: a name ends up on one line of every client's profile.
+func validNodeName(name string) error {
+	if name == "" {
+		return httpx.BadRequest("名称不能为空")
+	}
+	if utf8.RuneCountInString(name) > 64 || strings.ContainsAny(name, "\r\n\t") {
+		return httpx.BadRequest("名称最多 64 个字，不能换行")
+	}
+	return nil
+}
 
 func (in nodeInput) apply(n *domain.Node) error {
 	if in.URI != "" {
@@ -518,6 +530,20 @@ func (a *API) updateNode(w http.ResponseWriter, r *http.Request) error {
 			}
 			relisten = true
 		}
+	}
+	if n.Source == domain.NodeImported {
+		// A subscription's node is its feed's to define; here it only gets a
+		// name of its own, which the next sync keeps.
+		name := strings.TrimSpace(in.Name)
+		if err := validNodeName(name); err != nil {
+			return err
+		}
+		if err := a.Store.RenameImportedNode(r.Context(), &n, name); err != nil {
+			return err
+		}
+		a.audit(r, "node.rename", n.Name, nil)
+		httpx.OK(w, a.nodeViews(r, []domain.Node{n})[0])
+		return nil
 	}
 	if n.Source == domain.NodeDeployed || n.Source == domain.NodeChain {
 		// only cosmetic fields may change on deployed nodes

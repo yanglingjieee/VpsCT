@@ -491,6 +491,11 @@ func (a *API) routes() {
 	a.public("GET /s/{token}", a.publicSubscription)
 	a.public("GET /s/{token}/{format}", a.publicSubscription)
 	a.public("GET /r/{code}", a.publicShort)
+	// Some clients name a profile after the last segment of its address
+	// (Shadowrocket, Surge). The named forms end in the name it should carry;
+	// the name itself is not read.
+	a.public("GET /s/{token}/{format}/{name}", a.publicSubscription)
+	a.public("GET /r/{code}/{format}/{name}", a.publicShort)
 	a.public("GET /healthz", func(w http.ResponseWriter, r *http.Request) error {
 		httpx.OK(w, map[string]any{"ok": true})
 		return nil

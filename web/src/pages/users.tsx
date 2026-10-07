@@ -11,6 +11,7 @@ import { useToast } from "@/components/toast";
 import { TrafficBars } from "@/components/charts";
 import { QR } from "@/components/qr";
 import { CLIENT_APPS } from "@/lib/clients";
+import { useAuth } from "@/lib/auth";
 
 export function StatusBadge({ s }: { s: ShareStatus }) {
   const v = s === "active" ? "success" : s === "paused" ? "warning" : s === "exhausted" ? "destructive" : "secondary";
@@ -230,6 +231,8 @@ function CopyRow({ label, value }: { label?: string; value: string }) {
 }
 
 function LinkCard({ user }: { user: Share }) {
+  // In a client the profile is "the service", so it carries the site's name.
+  const siteName = useAuth().meta?.site_name ?? "土豆饼的家";
   const toast = useToast();
   if (!user.link) return <p className="text-sm text-muted-foreground">尚未生成</p>;
   if (user.delivery === "nodes") {
@@ -253,7 +256,7 @@ function LinkCard({ user }: { user: Share }) {
       <CopyRow value={user.link} />
       <div className="flex flex-wrap gap-2">
         <a href={user.link} target="_blank" rel="noreferrer"><Button size="sm" variant="outline"><ExternalLink className="h-4 w-4" /> 打开个人页</Button></a>
-        {apps.map((a) => <a key={a.id} href={a.link(user.link!, user.name)}><Button size="sm" variant="outline">导入 {a.name}</Button></a>)}
+        {apps.map((a) => <a key={a.id} href={a.link(user.link!, siteName)}><Button size="sm" variant="outline">导入 {a.name}</Button></a>)}
       </div>
     </div>
   );
