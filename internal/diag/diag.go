@@ -66,9 +66,6 @@ func Collect(ctx context.Context) Host {
 			}
 		}
 	}
-	if !h.BBR {
-		h.Warnings = append(h.Warnings, "拥塞控制不是 BBR ("+h.CongestionCtl+")")
-	}
 	if !h.TimeSync {
 		h.Warnings = append(h.Warnings, "系统时间未同步（影响 Reality/Hysteria2 握手）")
 	}

@@ -335,7 +335,7 @@ export function ServerDetailPage() {
             <CardContent>
               {!d ? <p className="text-sm text-muted-foreground">等待 agent 上报</p> : (
                 <ul className="grid grid-cols-2 gap-2 text-sm">
-                  <Diag ok={d.bbr} label={`拥塞控制 ${d.congestion_ctl || "?"}`} />
+                  <Diag ok={d.bbr} label={`拥塞控制 ${d.congestion_ctl || "?"}`} neutral={s.node_count === 0} />
                   <Diag ok={d.time_sync} label="时间同步" />
                   <Diag ok={Math.abs(d.clock_skew_ms) < 2000} label={`时钟偏差 ${d.clock_skew_ms} ms`} />
                   <Diag ok={d.ipv4_reachable} label="IPv4 出网" />
@@ -469,10 +469,11 @@ function CalibrateDialog({ open, onClose, server }: { open: boolean; onClose: ()
   );
 }
 
-function Diag({ ok, label, warnOnly }: { ok: boolean; label: string; warnOnly?: boolean }) {
+/** `neutral`: shown for information on a server the panel only watches, not judged. */
+function Diag({ ok, label, warnOnly, neutral }: { ok: boolean; label: string; warnOnly?: boolean; neutral?: boolean }) {
   return (
     <li className="flex items-center gap-2">
-      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : warnOnly ? "bg-amber-500" : "bg-red-500"}`} />
+      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : neutral ? "bg-muted-foreground/40" : warnOnly ? "bg-amber-500" : "bg-red-500"}`} />
       {label}
     </li>
   );

@@ -602,6 +602,11 @@ func (a *Agent) diagnostics(ctx context.Context) agentproto.Diagnostics {
 	a.mu.Lock()
 	h := a.lastDiag
 	a.mu.Unlock()
+	// Congestion control is a finding only where the panel is meant to set
+	// it: on a host that is merely watched it is none of its business.
+	if ds != nil && ds.Tuning.EnableBBR && !h.BBR {
+		h.Warnings = append([]string{"拥塞控制不是 BBR (" + h.CongestionCtl + ")"}, h.Warnings...)
+	}
 	d := agentproto.Diagnostics{
 		ClockSkewMs: skew, BBR: h.BBR, CongestionCtl: h.CongestionCtl, IPv6Reachable: h.IPv6Reachable, IPv4Reachable: h.IPv4Reachable,
 		OOMEvents: h.OOMEvents, Nftables: h.Nftables, Systemd: h.Systemd, TimeSync: h.TimeSync, Warnings: h.Warnings,
