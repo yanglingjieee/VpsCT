@@ -735,4 +735,16 @@ ALTER TABLE servers ADD COLUMN quota_stopped INTEGER NOT NULL DEFAULT 0 CHECK(qu
 	// v35: a node that came from an external subscription can be renamed
 	// here; what its feed calls it is kept so that syncs still find it.
 	`ALTER TABLE nodes ADD COLUMN upstream_name TEXT NOT NULL DEFAULT '';`,
+	// v36: what the operator was told about is remembered, so a restart does
+	// not announce it again and the all-clear can say how long it lasted.
+	`CREATE TABLE incidents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  resolved_at TEXT,
+  message_id INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX idx_incidents_open ON incidents(key) WHERE resolved_at IS NULL;
+CREATE INDEX idx_incidents_opened ON incidents(opened_at);`,
 }

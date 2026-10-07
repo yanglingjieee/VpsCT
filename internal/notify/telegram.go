@@ -1,4 +1,4 @@
-// Package notify sends operator alerts (Telegram).
+// Package notify posts to the operator's Telegram chat.
 package notify
 
 import (
@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -25,14 +25,11 @@ type Telegram struct {
 	Logger *slog.Logger
 	// Base is the Bot API origin; tests replace it.
 	Base string
-
-	mu       sync.Mutex
-	lastSent map[string]time.Time
 }
 
 // New builds a Telegram notifier.
 func New(cfg func(ctx context.Context) (string, string), logger *slog.Logger) *Telegram {
-	return &Telegram{Client: &http.Client{Timeout: 15 * time.Second}, Config: cfg, Logger: logger, Base: "https://api.telegram.org", lastSent: map[string]time.Time{}}
+	return &Telegram{Client: &http.Client{Timeout: 15 * time.Second}, Config: cfg, Logger: logger, Base: "https://api.telegram.org"}
 }
 
 var tokenRe = regexp.MustCompile(`\d{6,12}:[A-Za-z0-9_-]{30,64}`)
@@ -83,6 +80,9 @@ func (t *Telegram) ChatProblem(ctx context.Context, bot string) string {
 // ErrNotConfigured means no token or chat has been saved yet.
 var ErrNotConfigured = errors.New("telegram not configured")
 
+// errMarkup means Telegram could not read the message as HTML.
+var errMarkup = errors.New("telegram: message markup rejected")
+
 // call runs one Bot API method and decodes its result. Failures come back in
 // words the operator can act on instead of a bare status code.
 func (t *Telegram) call(ctx context.Context, token, method string, payload any, result any) error {
@@ -113,6 +113,8 @@ func (t *Telegram) call(ctx context.Context, token, method string, payload any, 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound:
 		return errors.New("Bot Token 不对：到 @BotFather 重新复制（形如 123456789:AA…）")
+	case strings.Contains(d, "can't parse entities"):
+		return errMarkup
 	case strings.Contains(d, "chat not found"):
 		return errors.New("找不到这个 Chat ID：先在 Telegram 里给机器人发一条消息，再点「自动获取」")
 	case strings.Contains(d, "can't send messages to"):
@@ -139,32 +141,73 @@ func trimSecret(s, secret string) string {
 	return strings.ReplaceAll(s, secret, "<token>")
 }
 
-// Send posts text (Markdown disabled for safety).
-func (t *Telegram) Send(ctx context.Context, text string) error {
+// messageLimit is how much text Telegram takes in one message (4096), with
+// room to spare.
+const messageLimit = 3800
+
+var tagRe = regexp.MustCompile(`<[^>]+>`)
+
+// Post sends a message written in Telegram's HTML subset and returns its id.
+// replyTo, when not 0, is the earlier message this one answers. Text too long
+// for one message is split between lines, so no tag may span a line; the id
+// is that of the first part.
+func (t *Telegram) Post(ctx context.Context, text string, replyTo int64) (int64, error) {
 	token, chat := t.Config(ctx)
 	if token == "" || chat == "" {
-		return ErrNotConfigured
+		return 0, ErrNotConfigured
 	}
-	return t.call(ctx, token, "sendMessage", map[string]any{"chat_id": chat, "text": text, "disable_web_page_preview": true}, nil)
+	var first int64
+	for _, part := range split(text, messageLimit) {
+		payload := map[string]any{"chat_id": chat, "text": part, "parse_mode": "HTML", "link_preview_options": map[string]any{"is_disabled": true}}
+		if replyTo != 0 {
+			payload["reply_parameters"] = map[string]any{"message_id": replyTo, "allow_sending_without_reply": true}
+		}
+		var sent struct {
+			MessageID int64 `json:"message_id"`
+		}
+		err := t.call(ctx, token, "sendMessage", payload, &sent)
+		if errors.Is(err, errMarkup) {
+			// A name that reads as markup must not cost the message.
+			delete(payload, "parse_mode")
+			payload["text"] = html.UnescapeString(tagRe.ReplaceAllString(part, ""))
+			err = t.call(ctx, token, "sendMessage", payload, &sent)
+		}
+		if err != nil {
+			return first, err
+		}
+		if first == 0 {
+			first = sent.MessageID
+		}
+		replyTo = 0
+	}
+	return first, nil
 }
 
-// SendDedup sends at most once per key within window.
-func (t *Telegram) SendDedup(ctx context.Context, key string, window time.Duration, text string) {
-	t.mu.Lock()
-	if last, ok := t.lastSent[key]; ok && time.Since(last) < window {
-		t.mu.Unlock()
-		return
+// split cuts text into parts of at most limit characters, between lines.
+func split(text string, limit int) []string {
+	var parts []string
+	var b strings.Builder
+	n := 0
+	for _, line := range strings.SplitAfter(text, "\n") {
+		size := len([]rune(line))
+		if n > 0 && n+size > limit {
+			parts = append(parts, strings.TrimRight(b.String(), "\n"))
+			b.Reset()
+			n = 0
+		}
+		b.WriteString(line)
+		n += size
 	}
-	t.lastSent[key] = time.Now()
-	t.mu.Unlock()
-	if err := t.Send(ctx, text); err != nil && t.Logger != nil && !errors.Is(err, ErrNotConfigured) {
-		t.Logger.Warn("telegram send failed", "err", err)
+	if n > 0 {
+		parts = append(parts, strings.TrimRight(b.String(), "\n"))
 	}
+	return parts
 }
 
 // Test sends a probe message.
 func (t *Telegram) Test(ctx context.Context, site string) error {
-	return t.Send(ctx, "✅ "+site+"：通知测试成功")
+	_, err := t.Post(ctx, "✅ <b>"+html.EscapeString(site)+"</b>：通知测试成功", 0)
+	return err
 }
 
 // Bot returns the @username the saved token belongs to.

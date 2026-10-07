@@ -78,7 +78,7 @@ function GeneralTab() {
         <div className="grid gap-4">
           <Field label="站点名称"><Input value={s.value("site.name")} onChange={(e) => s.set("site.name", e.target.value)} /></Field>
           <Field label="站点外部地址" hint="用户专属链接的前缀；经 Cloudflare 或反向代理时请填写"><Input value={s.value("site.url")} onChange={(e) => s.set("site.url", e.target.value)} placeholder="https://panel.example.com" /></Field>
-          <Field label="服务器流量用到多少开始提醒" hint="只看「服务器」的本期已用 ÷ 月配额（每台按自己的算法：双向或只算出站）。到了这个比例：总览出现一条黄条；配了 Telegram 也会推一次。用完以后停不停，在每台服务器自己的设置里选。用户的限额不看这个数，用尽才提醒。">
+          <Field label="流量用到多少开始提醒" hint="服务器看本期已用 ÷ 月配额（每台按自己的算法：双向或只算出站）：到了这个比例，总览出现一条黄条，配了 Telegram 也会推一次。用完以后停不停，在每台服务器自己的设置里选。用户的限额到了这个比例，Telegram 也会提前说一声；用完自动停。">
             <Select value={s.value("quota.alert_percent") || "80"} onChange={(e) => s.set("quota.alert_percent", e.target.value)}>
               {(["70", "80", "90", "95"] as const).map((n) => <option key={n} value={n}>用到 {n}% 就提醒</option>)}
               {s.value("quota.alert_percent") && !["70", "80", "90", "95"].includes(s.value("quota.alert_percent")) && (
@@ -126,6 +126,7 @@ function NotifyTab() {
     onError: (e) => toast.fromError(e),
   });
   const test = useMutation({ mutationFn: () => post("/api/v1/settings/telegram/test"), onSuccess: () => toast.success("测试消息已发送，去 Telegram 里看一眼"), onError: (e) => toast.fromError(e, "发送失败") });
+  const daily = useMutation({ mutationFn: () => post("/api/v1/settings/telegram/daily"), onSuccess: () => toast.success("日报已发送，去 Telegram 里看一眼"), onError: (e) => toast.fromError(e, "发送失败") });
   const detect = useMutation({
     mutationFn: () => get<TelegramChat[]>("/api/v1/settings/telegram/chats"),
     onSuccess: (list) => {
@@ -138,9 +139,20 @@ function NotifyTab() {
   if (s.q.isLoading) return <Spinner />;
   const st = status.data;
   const typeLabel: Record<string, string> = { private: "私聊", group: "群组", supergroup: "群组", channel: "频道" };
+  const alertAt = s.value("quota.alert_percent") || "80";
+  const zone = s.value("quota.timezone") || "UTC";
+  const zoneLabel = RESET_ZONES.find(([z]) => z === zone)?.[1] ?? zone;
   return (
     <Card className="max-w-2xl p-4 sm:p-5">
-      <p className="mb-4 text-sm leading-6 text-muted-foreground">会通知：服务器离线和恢复、配置下发失败、服务器流量到 {s.value("quota.alert_percent") || "80"}% 和用完、用户流量用完或到期、证书快到期，以及每日日报。</p>
+      <div className="mb-4 text-sm leading-6 text-muted-foreground">
+        <p>每件事只说一次，写明影响和该怎么办；解决了会在原消息下面回一条，说持续了多久。还没解决的，每天的日报里会再列出来。</p>
+        <ul className="mt-2 list-disc space-y-0.5 pl-5">
+          <li>服务器失联和恢复：哪些线路可能不通、现在还能用哪些；几台同时失联合成一条</li>
+          <li>服务器流量到 {alertAt}%、用完、因配额停掉和恢复：还剩多少、哪天重置、照近 7 天的速度够不够用、谁用得多</li>
+          <li>用户流量到 {alertAt}%、用完、快到期、到期，以及恢复</li>
+          <li>内核没在运行或反复重启、内存不够、时钟偏差、证书快到期、配置下发失败、外部订阅同步失败</li>
+        </ul>
+      </div>
       <div className="grid gap-4">
         <Field label="Bot Token" hint="在 Telegram 里找 @BotFather 新建机器人，把它给的那段话整段粘进来就行">
           <Input className="mono" value={s.value("telegram.bot_token")} onChange={(e) => s.set("telegram.bot_token", e.target.value)} placeholder="123456789:AA…" />
@@ -169,13 +181,22 @@ function NotifyTab() {
             ))}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-4">
-          <Switch checked={s.value("telegram.daily_report") === "1"} onChange={(v) => s.set("telegram.daily_report", v ? "1" : "0")} label="每日日报（各服务器和各用户的用量）" />
-          <Field label="发送时刻 (0-23 时)"><Input type="number" min={0} max={23} className="w-24" value={s.value("telegram.daily_hour")} onChange={(e) => s.set("telegram.daily_hour", e.target.value)} /></Field>
+        <div>
+          <div className="flex flex-wrap items-center gap-4">
+            <Switch checked={s.value("telegram.daily_report") === "1"} onChange={(v) => s.set("telegram.daily_report", v ? "1" : "0")} label="每日日报" />
+            <Field label="发送时刻 (0-23 时)"><Input type="number" min={0} max={23} className="w-24" value={s.value("telegram.daily_hour")} onChange={(e) => s.set("telegram.daily_hour", e.target.value)} /></Field>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            每个人当天用了多少、走的哪条线路；每台服务器当天和本期的流量；照近 7 天的速度谁会提前用完；当天发生过什么、还有什么没解决。
+            时刻按面板的时区（{zoneLabel}）算：中午 12 点前发的报前一天，之后发的报当天到那时为止。
+          </p>
         </div>
       </div>
-      <div className="mt-4 flex justify-between">
-        <Button variant="outline" onClick={() => test.mutate()} loading={test.isPending} disabled={s.dirty}><Send className="h-4 w-4" /> 发送测试消息</Button>
+      <div className="mt-4 flex flex-wrap justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => test.mutate()} loading={test.isPending} disabled={s.dirty}><Send className="h-4 w-4" /> 发送测试消息</Button>
+          <Button variant="outline" onClick={() => daily.mutate()} loading={daily.isPending} disabled={s.dirty}><Send className="h-4 w-4" /> 现在发一份日报</Button>
+        </div>
         <Button onClick={() => s.save.mutate(undefined, { onSuccess: refresh })} loading={s.save.isPending} disabled={!s.dirty}><Save className="h-4 w-4" /> 保存</Button>
       </div>
       {s.dirty && <p className="mt-2 text-right text-xs text-muted-foreground">先保存，再自动获取或测试</p>}

@@ -178,6 +178,24 @@ func (s *Store) SumTrafficIDs(ctx context.Context, subject string, ids []int64, 
 	return
 }
 
+// SumHourly totals one subject across many IDs in the hours of [from, to):
+// what a day carried in a timezone that is not UTC.
+func (s *Store) SumHourly(ctx context.Context, subject string, ids []int64, from, to time.Time) (up, down int64, err error) {
+	if len(ids) == 0 {
+		return 0, 0, nil
+	}
+	args := make([]any, 0, len(ids)+3)
+	args = append(args, subject)
+	ph := make([]string, len(ids))
+	for i, id := range ids {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, from.UTC().Truncate(time.Hour).Format(time.RFC3339), to.UTC().Format(time.RFC3339))
+	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(up),0), COALESCE(SUM(down),0) FROM traffic_hourly WHERE subject=? AND subject_id IN (`+strings.Join(ph, ",")+`) AND bucket>=? AND bucket<?`, args...).Scan(&up, &down)
+	return
+}
+
 // DailyTotals sums all subjects of one kind per day (dashboard chart).
 func (s *Store) DailyTotals(ctx context.Context, subject string, from, to time.Time) ([]domain.TrafficBucket, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT bucket, SUM(up), SUM(down) FROM traffic_daily WHERE subject=? AND bucket>=? AND bucket<=? GROUP BY bucket ORDER BY bucket`,

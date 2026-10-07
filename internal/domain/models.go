@@ -578,6 +578,21 @@ type AuditEvent struct {
 	IP       string          `json:"ip"`
 }
 
+// Incident is one thing the panel told the operator about: a condition from
+// the moment it appeared until it cleared, or a single event.
+type Incident struct {
+	ID int64 `json:"id"`
+	// Key names what it is about ("offline/server/3"). At most one incident
+	// per key is open at a time.
+	Key        string     `json:"key"`
+	Title      string     `json:"title"` // one line, as the daily report lists it
+	OpenedAt   time.Time  `json:"opened_at"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"` // nil while it lasts
+	// MessageID is the Telegram message that announced it, so that the
+	// all-clear can answer it; 0 when none was delivered.
+	MessageID int64 `json:"message_id,omitempty"`
+}
+
 // AccessLog records one subscription fetch.
 type AccessLog struct {
 	ID             int64     `json:"id"`
@@ -624,6 +639,7 @@ const (
 	SettingTelegramChatID   = "telegram.chat_id"
 	SettingTelegramDaily    = "telegram.daily_report"
 	SettingTelegramHour     = "telegram.daily_hour"
+	SettingTelegramSent     = "telegram.daily_sent" // local date of the last daily report; kept by the reporter
 	SettingConnlogRetention = "connlog.retention_days"
 	SettingAggRetention     = "connlog.aggregate_retention_days"
 	SettingConnlogSelf      = "connlog.self_enabled"

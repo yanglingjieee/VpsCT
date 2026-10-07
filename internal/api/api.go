@@ -21,6 +21,7 @@ import (
 	"ctlvps/internal/geoip"
 	"ctlvps/internal/httpx"
 	"ctlvps/internal/notify"
+	"ctlvps/internal/report"
 	"ctlvps/internal/safehttp"
 	"ctlvps/internal/scheduler"
 	"ctlvps/internal/share"
@@ -54,6 +55,7 @@ type Deps struct {
 	Shares      *share.Manager
 	Traffic     *traffic.Ingestor
 	Notify      *notify.Telegram
+	Report      *report.Reporter
 	Scheduler   *scheduler.Scheduler
 	Logger      *slog.Logger
 	Static      http.Handler
@@ -470,6 +472,7 @@ func (a *API) routes() {
 	a.handle("POST /api/v1/settings/telegram/test", adminAccess, a.testTelegram)
 	a.handle("GET /api/v1/settings/telegram/status", adminAccess, a.telegramStatus)
 	a.handle("GET /api/v1/settings/telegram/chats", adminAccess, a.telegramChats)
+	a.handle("POST /api/v1/settings/telegram/daily", adminAccess, a.telegramDaily)
 	a.handle("GET /api/v1/audit", adminAccess, a.listAudit)
 	a.handle("GET /api/v1/bans", adminAccess, a.listBans)
 	a.handle("POST /api/v1/bans", adminAccess, a.createBan)

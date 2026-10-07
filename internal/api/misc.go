@@ -311,6 +311,18 @@ func (a *API) testTelegram(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// telegramDaily posts the daily report now, whatever hour it is set for.
+func (a *API) telegramDaily(w http.ResponseWriter, r *http.Request) error {
+	if err := a.Report.PostDaily(r.Context()); err != nil {
+		if errors.Is(err, notify.ErrNotConfigured) {
+			return httpx.BadRequest("先填好 Bot Token 和 Chat ID 并保存")
+		}
+		return httpx.BadRequest(err.Error())
+	}
+	httpx.NoContent(w)
+	return nil
+}
+
 // telegramStatus tells the settings page which bot the saved token is, so a
 // wrong token shows up before anything depends on it.
 func (a *API) telegramStatus(w http.ResponseWriter, r *http.Request) error {

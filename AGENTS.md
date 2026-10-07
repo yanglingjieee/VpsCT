@@ -41,6 +41,7 @@
 | `internal/core/singbox.go` | 生成 sing-box 服务端配置 |
 | `internal/subscription` | 各客户端格式的渲染；`lines.go` 按线路出节点，`norules.go` 是内置无规则 |
 | `internal/store/schema.go` | 数据库迁移；本分支从 v31 开始 |
+| `internal/report` | Telegram 推送：每件事从发生到解决各说一次（`incidents` 表记着说过什么），以及日报。只推送，不接收消息 |
 
 上游的出口、转发、托管中转、模板、预设、多账号等后端代码仍在仓库里但没有界面入口，也没有被本分支的功能依赖。改动时不必为它们加新功能；要删就连同测试一起删干净。
 

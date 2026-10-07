@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -92,5 +93,51 @@ func TestFailuresSayWhatToDo(t *testing.T) {
 	cfg[0] = ""
 	if err := tg.Test(ctx, "site"); err != ErrNotConfigured {
 		t.Fatalf("unconfigured: %v", err)
+	}
+}
+
+func TestPostAnswersSplitsAndSurvivesBadMarkup(t *testing.T) {
+	type sent struct {
+		Text  string `json:"text"`
+		Mode  string `json:"parse_mode"`
+		Reply struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"reply_parameters"`
+	}
+	var got []sent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in sent
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if in.Mode == "HTML" && strings.Contains(in.Text, "<oops>") {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Unsupported start tag \"oops\""}`))
+			return
+		}
+		got = append(got, in)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":` + strconv.Itoa(700+len(got)) + `}}`))
+	}))
+	defer srv.Close()
+	tg := New(func(context.Context) (string, string) { return "1234567890:AAEabcdefghijklmnopqrstuvwxyz012345", "42" }, nil)
+	tg.Base = srv.URL
+	ctx := context.Background()
+
+	if id, err := tg.Post(ctx, "<b>恢复</b>", 55); err != nil || id != 701 || got[0].Reply.MessageID != 55 || got[0].Mode != "HTML" {
+		t.Fatalf("an answer names what it answers: id=%d err=%v %+v", id, err, got)
+	}
+	// Longer than one message: cut between lines, the id is the first part's,
+	// and only that part answers.
+	line := strings.Repeat("字", 99) + "\n"
+	id, err := tg.Post(ctx, strings.Repeat(line, 80), 55)
+	if err != nil || id != 702 || len(got) != 4 || got[1].Reply.MessageID != 55 || got[2].Reply.MessageID != 0 {
+		t.Fatalf("split: id=%d err=%v parts=%d", id, err, len(got)-1)
+	}
+	for _, part := range got[1:] {
+		if n := len([]rune(part.Text)); n > messageLimit || strings.HasSuffix(part.Text, "\n") || n%100 != 99 {
+			t.Fatalf("a part must be whole lines within the limit: %d", n)
+		}
+	}
+	// Markup Telegram cannot read is sent as plain text instead of lost.
+	if _, err := tg.Post(ctx, "<b>a &lt; b</b> <oops>", 0); err != nil || got[4].Mode != "" || got[4].Text != "a < b " {
+		t.Fatalf("fallback: err=%v %+v", err, got[len(got)-1])
 	}
 }

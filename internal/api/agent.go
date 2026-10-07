@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"ctlvps/internal/agentproto"
 	"ctlvps/internal/auth"
@@ -223,7 +222,7 @@ func (a *API) agentHeartbeat(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	a.checkServerQuota(ctx, ac.Server)
-	a.checkDiagnostics(ctx, ac.Server, hb.Diagnostics)
+	a.Report.Diagnostics(ctx, ac.Server, hb.Metrics, hb.Diagnostics)
 
 	resp := agentproto.HeartbeatResponse{NetworkVersion: agentproto.NetworkVersion, FinalMeterVersion: 1, MeteringVersion: 1, ServerTime: a.Store.Now(), PollIntervalSec: agentproto.DefaultPollIntervalSec}
 	if hb.Diagnostics.NetworkBillingVersion >= agentproto.NetworkBillingVersion {
@@ -263,83 +262,31 @@ func (a *API) agentHeartbeat(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// checkServerQuota alerts as a server nears its quota and, where the server is
-// set to stop, takes its inbounds down while the quota is used up. It carries
-// traffic again as soon as usage is back under the quota: at the next reset,
-// or when the quota, the count or the choice itself is changed.
+// checkServerQuota takes a server's inbounds down while its quota is used up,
+// where the server is set to stop, and reports how it stands against the
+// quota. It carries traffic again as soon as usage is back under the quota:
+// at the next reset, or when the quota, the count or the choice itself is
+// changed.
 func (a *API) checkServerQuota(ctx context.Context, s domain.Server) {
 	u, err := a.Traffic.ServerUsage(ctx, s)
 	if err != nil {
 		return
 	}
-	pct := a.Store.GetSettingInt(ctx, domain.SettingQuotaAlertPct, 80)
-	if a.Notify != nil && s.QuotaBytes > 0 && u.Percent >= float64(pct) {
-		key := fmt.Sprintf("quota:%d:%s", s.ID, u.PeriodStart.Format("2006-01-02"))
-		if u.OverQuota {
-			key += ":over"
+	if stop := s.QuotaStop && u.OverQuota; stop != s.QuotaStopped {
+		if err := a.Store.SetServerQuotaStopped(ctx, s.ID, stop); err != nil {
+			a.Logger.Warn("server quota stop", "server", s.Name, "err", err)
+			return
 		}
-		a.Notify.SendDedup(ctx, key, 24*time.Hour, fmt.Sprintf("⚠️ %s 本期流量已用 %.1f%% (%s / %s)", s.Name, u.Percent, humanBytes(u.Billed), humanBytes(u.Quota)))
-	}
-	stop := s.QuotaStop && u.OverQuota
-	if stop == s.QuotaStopped {
-		return
-	}
-	if err := a.Store.SetServerQuotaStopped(ctx, s.ID, stop); err != nil {
-		a.Logger.Warn("server quota stop", "server", s.Name, "err", err)
-		return
-	}
-	_, _, _ = a.Desired.Publish(ctx, s.ID)
-	action, text := "server.quota_resume", fmt.Sprintf("🟢 %s 的流量回到配额以内，入站已恢复", s.Name)
-	if stop {
-		action, text = "server.quota_stop", fmt.Sprintf("⛔ %s 本期配额用完（%s / %s），入站已停", s.Name, humanBytes(u.Billed), humanBytes(u.Quota))
-		if u.NextReset != nil {
-			text += fmt.Sprintf("，%s 重置后自动恢复", u.NextReset.Format("01-02"))
+		s.QuotaStopped = stop
+		_, _, _ = a.Desired.Publish(ctx, s.ID)
+		action := "server.quota_resume"
+		if stop {
+			action = "server.quota_stop"
 		}
+		_ = a.Store.AddAudit(ctx, domain.AuditEvent{Action: action, Target: s.Name, Detail: mustJSON(map[string]any{"billed": u.Billed, "quota": u.Quota})})
 	}
-	_ = a.Store.AddAudit(ctx, domain.AuditEvent{Action: action, Target: s.Name, Detail: mustJSON(map[string]any{"billed": u.Billed, "quota": u.Quota})})
-	if a.Notify != nil {
-		a.Notify.SendDedup(ctx, fmt.Sprintf("%s:%d:%s", action, s.ID, u.PeriodStart.Format("2006-01-02")), time.Hour, text)
-	}
+	a.Report.ServerQuota(ctx, s, u)
 }
-
-func (a *API) checkDiagnostics(ctx context.Context, s domain.Server, d agentproto.Diagnostics) {
-	if a.Notify == nil {
-		return
-	}
-	for _, c := range d.Cores {
-		if c.Wanted && !c.Active {
-			a.Notify.SendDedup(ctx, fmt.Sprintf("core:%d:%s", s.ID, c.Name), 6*time.Hour, fmt.Sprintf("🔴 %s 上的 %s 未运行: %s", s.Name, c.Name, c.LastError))
-		}
-		if c.NRestarts >= 5 {
-			a.Notify.SendDedup(ctx, fmt.Sprintf("restarts:%d:%s", s.ID, c.Name), 12*time.Hour, fmt.Sprintf("🟠 %s 上的 %s 已重启 %d 次", s.Name, c.Name, c.NRestarts))
-		}
-	}
-	if d.OOMEvents > 0 {
-		a.Notify.SendDedup(ctx, fmt.Sprintf("oom:%d", s.ID), 12*time.Hour, fmt.Sprintf("🟠 %s 发生 OOM 事件 %d 次", s.Name, d.OOMEvents))
-	}
-	if d.ClockSkewMs > 5000 || d.ClockSkewMs < -5000 {
-		a.Notify.SendDedup(ctx, fmt.Sprintf("clock:%d", s.ID), 12*time.Hour, fmt.Sprintf("🟠 %s 时钟偏差 %dms，可能影响 Reality/Hy2", s.Name, d.ClockSkewMs))
-	}
-	for _, c := range d.Certs {
-		if !c.NotAfter.IsZero() && time.Until(c.NotAfter) < 7*24*time.Hour {
-			a.Notify.SendDedup(ctx, fmt.Sprintf("cert:%d:%s", s.ID, c.Domain), 24*time.Hour, fmt.Sprintf("🟠 %s 证书 %s 将于 %s 过期", s.Name, c.Domain, c.NotAfter.Format("01-02")))
-		}
-	}
-}
-
-func humanBytes(b int64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
-}
-
 func (a *API) agentDesired(w http.ResponseWriter, r *http.Request) error {
 	ac := agentFrom(r.Context())
 	rec, err := a.Store.LatestDesiredState(r.Context(), ac.Server.ID)
@@ -463,8 +410,15 @@ func (a *API) agentApplyReport(w http.ResponseWriter, r *http.Request) error {
 	if err := a.Store.RecordNetworkApply(r.Context(), ac.Server.ID, rep.Revision, rep.Hash, status); err != nil {
 		return err
 	}
-	if st == domain.DesiredFailed && a.Notify != nil {
-		a.Notify.SendDedup(r.Context(), fmt.Sprintf("apply:%d", ac.Server.ID), time.Hour, fmt.Sprintf("🔴 %s 配置下发失败 (rev %d): %s", ac.Server.Name, rep.Revision, rep.Error))
+	switch st {
+	case domain.DesiredFailed:
+		failure := rep.Error
+		if failure == "" {
+			failure = rep.Status
+		}
+		a.Report.Applied(r.Context(), ac.Server, rep.Revision, failure)
+	case domain.DesiredApplied:
+		a.Report.Applied(r.Context(), ac.Server, rep.Revision, "")
 	}
 	a.Events.Publish("agent.applied", map[string]any{"server_id": ac.Server.ID, "revision": rep.Revision, "status": st, "error": rep.Error})
 	httpx.NoContent(w)

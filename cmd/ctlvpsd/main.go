@@ -28,6 +28,7 @@ import (
 	"ctlvps/internal/geoip"
 	"ctlvps/internal/maintenance"
 	"ctlvps/internal/notify"
+	"ctlvps/internal/report"
 	"ctlvps/internal/safehttp"
 	"ctlvps/internal/scheduler"
 	"ctlvps/internal/secureupdate"
@@ -154,17 +155,17 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return st.GetSetting(ctx, domain.SettingTelegramToken, ""), st.GetSetting(ctx, domain.SettingTelegramChatID, "")
 	}, logger)
 	shares := share.New(st, des)
-	shares.OnEvent = func(ctx context.Context, sh domain.Share, kind, detail string) {
-		switch kind {
-		case "status":
-			text := map[string]string{"exhausted": "本期流量已用完，线路已停用", "active": "已恢复正常", "expired": "已到期，线路已停用", "paused": "已暂停", "revoked": "已撤销"}[detail]
-			if text == "" {
-				text = "状态变为 " + detail
-			}
-			tg.SendDedup(ctx, fmt.Sprintf("share:%d:%s", sh.ID, detail), time.Hour, fmt.Sprintf("👤 用户「%s」%s", sh.Name, text))
+	ing := traffic.New(st)
+	rep, err := report.New(ctx, st, ing, tg, logger)
+	if err != nil {
+		return fmt.Errorf("load incidents: %w", err)
+	}
+	// Whatever changed about a user, the reporter looks at how they stand now.
+	shares.OnEvent = func(ctx context.Context, sh domain.Share, _, _ string) {
+		if cur, err := st.GetShare(ctx, sh.ID); err == nil {
+			rep.User(ctx, cur)
 		}
 	}
-	ing := traffic.New(st)
 	sched := scheduler.New(logger)
 	geo := geoip.Open(filepath.Join(cfg.DataDir, "geo"))
 	geo.SetOnlineEnabled(cfg.OnlineGeoIP)
@@ -180,12 +181,12 @@ func run(cfg config.Config, logger *slog.Logger) error {
 
 	secure := strings.HasPrefix(cfg.SiteURL, "https://")
 	a := api.New(api.Deps{
-		Store: st, Connlog: cl, Geo: geo, Subs: subs, Desired: des, Shares: shares, Traffic: ing, Notify: tg, Scheduler: sched, Logger: logger,
+		Store: st, Connlog: cl, Geo: geo, Subs: subs, Desired: des, Shares: shares, Traffic: ing, Notify: tg, Report: rep, Scheduler: sched, Logger: logger,
 		Static: web.Handler(cfg.DevProxy),
 		Config: api.Config{SiteURL: cfg.SiteURL, TrustProxy: false, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, SecureCookies: secure, SessionTTL: cfg.SessionTTL, Version: buildinfo.String(), StartedAt: time.Now(), DataDir: cfg.DataDir, AgentBinDir: cfg.AgentBinDir, SetupToken: setupToken},
 	})
 
-	registerJobs(sched, st, cl, subs, shares, des, tg, ing, cfg, logger)
+	registerJobs(sched, st, cl, subs, shares, des, rep, cfg, logger)
 	go sched.Run(ctx)
 
 	srv := &http.Server{
@@ -209,16 +210,19 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	return nil
 }
 
-func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, subs *subscription.Service, shares *share.Manager, des *desired.Builder, tg *notify.Telegram, ing *traffic.Ingestor, cfg config.Config, logger *slog.Logger) {
+func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, subs *subscription.Service, shares *share.Manager, des *desired.Builder, rep *report.Reporter, cfg config.Config, logger *slog.Logger) {
 	s.Add(scheduler.Job{Name: "external_sync", Interval: time.Minute, RunAtStart: true, Fn: func(ctx context.Context) error {
 		for id, err := range subs.SyncDue(ctx, false) {
 			if err != nil {
 				logger.Warn("external sync failed", "external", id, "err", err)
 			}
 		}
+		rep.Externals(ctx)
 		return nil
 	}})
-	s.Add(scheduler.Job{Name: "share_tick", Interval: 5 * time.Minute, RunAtStart: true, Fn: shares.Tick})
+	s.Add(scheduler.Job{Name: "share_tick", Interval: 5 * time.Minute, RunAtStart: true, Fn: func(ctx context.Context) error {
+		return errors.Join(shares.Tick(ctx), rep.Users(ctx))
+	}})
 	s.Add(scheduler.Job{Name: "desired_refresh", Interval: time.Hour, RunAtStart: true, Fn: des.PublishAll})
 	s.Add(scheduler.Job{Name: "network_operations", Interval: 5 * time.Second, RunAtStart: true, Fn: des.ReconcileNetworkOperations})
 	s.Add(scheduler.Job{Name: "retention", Interval: time.Hour, RunAtStart: true, Fn: func(ctx context.Context) error {
@@ -231,6 +235,7 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 		errs = append(errs, st.PruneAudit(ctx, 180*24*time.Hour))
 		errs = append(errs, st.PurgeExpiredSessions(ctx))
 		errs = append(errs, st.PruneDesiredStates(ctx, 20))
+		errs = append(errs, st.PruneIncidents(ctx, 90*24*time.Hour))
 		if cl != nil {
 			raw := st.GetSettingInt(ctx, domain.SettingConnlogRetention, 7)
 			agg := st.GetSettingInt(ctx, domain.SettingAggRetention, 90)
@@ -263,93 +268,6 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 		logger.Info("backup written", "file", target)
 		return nil
 	}})
-	var lastOfflineCheck = map[int64]bool{}
-	s.Add(scheduler.Job{Name: "agent_watch", Interval: time.Minute, Fn: func(ctx context.Context) error {
-		agents, err := st.ListAgents(ctx)
-		if err != nil {
-			return err
-		}
-		offline := time.Duration(st.GetSettingInt(ctx, domain.SettingAgentOfflineSec, 120)) * time.Second
-		for _, ag := range agents {
-			if ag.TokenHash == "" || ag.LastSeenAt == nil {
-				continue
-			}
-			isOff := time.Since(*ag.LastSeenAt) > offline
-			if isOff && !lastOfflineCheck[ag.ID] {
-				if srv, err := st.GetServer(ctx, ag.ServerID); err == nil && srv.Enabled {
-					tg.SendDedup(ctx, fmt.Sprintf("offline:%d", ag.ID), 6*time.Hour, fmt.Sprintf("🔴 %s 离线了（最后一次心跳 %s）", srv.Name, ag.LastSeenAt.Local().Format("01-02 15:04")))
-				}
-			} else if !isOff && lastOfflineCheck[ag.ID] {
-				if srv, err := st.GetServer(ctx, ag.ServerID); err == nil {
-					tg.SendDedup(ctx, fmt.Sprintf("online:%d", ag.ID), time.Hour, fmt.Sprintf("🟢 %s 恢复在线", srv.Name))
-				}
-			}
-			lastOfflineCheck[ag.ID] = isOff
-		}
-		return nil
-	}})
-	var lastReport string
-	s.Add(scheduler.Job{Name: "daily_report", Interval: 10 * time.Minute, Fn: func(ctx context.Context) error {
-		if !st.GetSettingBool(ctx, domain.SettingTelegramDaily, false) {
-			return nil
-		}
-		now := time.Now()
-		if now.Hour() != st.GetSettingInt(ctx, domain.SettingTelegramHour, 9) || lastReport == now.Format("2006-01-02") {
-			return nil
-		}
-		servers, err := st.ListServers(ctx)
-		if err != nil {
-			return err
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "📊 %s 日报 %s\n服务器本期流量：\n", st.GetSetting(ctx, domain.SettingSiteName, "土豆饼的家"), now.Format("2006-01-02"))
-		for _, srv := range servers {
-			u, err := ing.ServerUsage(ctx, srv)
-			if err != nil {
-				continue
-			}
-			line := fmt.Sprintf("• %s: %s", srv.Name, human(u.Billed))
-			if u.Quota > 0 {
-				line += fmt.Sprintf(" / %s（%.0f%%）", human(u.Quota), u.Percent)
-			}
-			b.WriteString(line + "\n")
-		}
-		if shares, _ := st.ListShares(ctx, nil); len(shares) > 0 {
-			b.WriteString("用户本期用量：\n")
-			for _, sh := range shares {
-				line := fmt.Sprintf("• %s: %s", sh.Name, human(sh.UsedUpload+sh.UsedDownload))
-				if sh.QuotaBytes > 0 {
-					line += " / " + human(sh.QuotaBytes)
-				}
-				switch sh.Status {
-				case domain.ShareExhausted:
-					line += "（已用完）"
-				case domain.ShareExpired:
-					line += "（已到期）"
-				case domain.SharePaused:
-					line += "（已暂停）"
-				case domain.ShareRevoked:
-					continue
-				}
-				b.WriteString(line + "\n")
-			}
-		}
-		// A day whose report cannot be delivered is not retried every ten
-		// minutes: the settings page shows what is wrong.
-		lastReport = now.Format("2006-01-02")
-		return tg.Send(ctx, strings.TrimRight(b.String(), "\n"))
-	}})
-}
-
-func human(b int64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+	s.Add(scheduler.Job{Name: "agent_watch", Interval: time.Minute, Fn: rep.WatchAgents})
+	s.Add(scheduler.Job{Name: "daily_report", Interval: 10 * time.Minute, Fn: rep.DailyDue})
 }

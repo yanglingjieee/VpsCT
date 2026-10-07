@@ -435,7 +435,9 @@ type ServerUsage struct {
 	OverQuota   bool       `json:"over_quota"`
 }
 
-func billed(mode string, inbound, outbound int64) int64 {
+// Billed is what a server's host charges for: what leaves the NIC, or both
+// directions.
+func Billed(mode string, inbound, outbound int64) int64 {
 	if mode == domain.BillingOut {
 		return outbound
 	}
@@ -478,7 +480,7 @@ func (i *Ingestor) ServerUsage(ctx context.Context, s domain.Server) (ServerUsag
 	u.Total = domain.Total(up, down)
 	u.OneWay = u.Outbound
 	u.TwoWay = u.Total
-	u.Measured = billed(s.QuotaBilling, u.Inbound, u.Outbound)
+	u.Measured = Billed(s.QuotaBilling, u.Inbound, u.Outbound)
 	if u.Billed = u.Measured + u.Adjust; u.Billed < 0 {
 		u.Billed = 0
 	}
@@ -507,7 +509,7 @@ func (i *Ingestor) CalibrateServer(ctx context.Context, s domain.Server, used *i
 		}
 		var adjust int64
 		if used != nil {
-			adjust = *used - billed(s.QuotaBilling, p.Rx, p.Tx)
+			adjust = *used - Billed(s.QuotaBilling, p.Rx, p.Tx)
 		}
 		return store.SetServerAdjust(ctx, tx, s.ID, adjust)
 	})
