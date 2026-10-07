@@ -28,6 +28,23 @@ func (s *Store) loadLocation(ctx context.Context) {
 	s.loc.Store(loc)
 }
 
+// adoptQuotaAction retires the panel-wide "stop servers that used up their
+// quota": where it was on, every server with a quota now carries the choice
+// itself.
+func (s *Store) adoptQuotaAction(ctx context.Context) error {
+	const key = "quota.action"
+	switch s.GetSetting(ctx, key, "") {
+	case "":
+		return nil
+	case "disable", "stop":
+		if _, err := s.db.ExecContext(ctx, `UPDATE servers SET quota_stop=1 WHERE quota_bytes>0`); err != nil {
+			return err
+		}
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, key)
+	return err
+}
+
 // ServerPeriod is what a server's NIC carried in one billing period, plus the
 // correction that brings the billed amount in line with the host's own count.
 type ServerPeriod struct {

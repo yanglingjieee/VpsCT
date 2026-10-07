@@ -92,9 +92,16 @@ type Server struct {
 	QuotaBytes    int64    `json:"quota_bytes"`     // 0 = unlimited
 	QuotaResetDay int      `json:"quota_reset_day"` // 1..28, or 31 = last day (29/30/31 normalize to 31)
 	QuotaBilling  string   `json:"quota_billing"`   // dual = inbound+outbound, out = outbound only
-	CoreMode      CoreMode `json:"core_mode"`
-	IPv4Only      bool     `json:"ipv4_only"`
-	PreferIPv6    bool     `json:"prefer_ipv6"` // outbound prefers AAAA, falls back to A; ignored when IPv4Only
+	// QuotaStop: a server that must not run over stops its inbounds when the
+	// quota is used up and carries traffic again once usage is back under it,
+	// which is at the next reset. Off: the panel only alerts.
+	QuotaStop bool `json:"quota_stop"`
+	// QuotaStopped is that state. The controller keeps it; saving a server
+	// does not change it.
+	QuotaStopped bool     `json:"quota_stopped"`
+	CoreMode     CoreMode `json:"core_mode"`
+	IPv4Only     bool     `json:"ipv4_only"`
+	PreferIPv6   bool     `json:"prefer_ipv6"` // outbound prefers AAAA, falls back to A; ignored when IPv4Only
 	// IngressAck: another firewall on the host filters inbound traffic and the
 	// administrator opens node ports there, so the agent neither edits rules
 	// nor reports that it cannot.

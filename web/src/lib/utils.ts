@@ -150,13 +150,13 @@ export function fmtPeriodDay(s?: string | null): string {
   return m ? `${Number(m[1])} 月 ${Number(m[2])} 日` : "-";
 }
 
-/** How long until a server's running period ends: "21 天后重置". */
-export function fmtResetIn(next?: string | null): string {
+/** How long until a server's running period ends, and what happens then: "21 天后重置". */
+export function fmtResetIn(next?: string | null, what = "重置"): string {
   if (!next) return "";
   const left = new Date(next).getTime() - Date.now();
   if (Number.isNaN(left)) return "";
-  if (left <= 0) return "即将重置";
-  return left < 86400e3 ? `${Math.ceil(left / 3600e3)} 小时后重置` : `${Math.floor(left / 86400e3)} 天后重置`;
+  if (left <= 0) return `即将${what}`;
+  return (left < 86400e3 ? `${Math.ceil(left / 3600e3)} 小时后` : `${Math.floor(left / 86400e3)} 天后`) + what;
 }
 
 export const BILLING_LABELS: Record<string, string> = { dual: "入站 + 出站", out: "只算出站" };

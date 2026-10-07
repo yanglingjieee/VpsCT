@@ -60,6 +60,7 @@
 - sing-box 只用官方发行版；不修改或自行编译内核。
 - 流量口径：入站 = 网卡收，出站 = 网卡发。用户的限额按汇总；服务器的配额按 `quota_billing`：`dual` 汇总，`out` 只算出站。用户凭据在远端一侧计量，入账时已换成用户视角的上传/下载。
 - 重置日：1–28 固定那天；29/30/31 都是“每月最后一天”（存 31）。新的一期从那天 0 点开始，时区是设置 `quota.timezone`（`store.Location()`）；`traffic.PeriodStart` 按传入时间自带的时区计算，调用前先 `.In(...)`。
+- 服务器配额用完后停不停是每台服务器自己的选项（`quota_stop`）；停的状态是 `quota_stopped`，由 `checkServerQuota` 维护，下发时等同于停用（`desired.Build`），用量回到配额内自动恢复。不要再加面板级的开关。
 - 服务器的本期用量是 `server_usage` 里随心跳累计的计数加一个校正值（`traffic.ServerUsage`、`CalibrateServer`），不是从 `traffic_daily` 求和；后者按 UTC 日分桶，只用于图表和首次建立计数。
 - 第三方许可文本由 `scripts/third-party.py` 生成；依赖变更要同步更新。
 - 在线 GeoIP 默认关闭，启用会向第三方发送公网客户端 IP，不能静默开启。

@@ -25,6 +25,7 @@ interface ServerForm {
   quota_gb: string;
   quota_reset_day: string;
   quota_billing: Server["quota_billing"];
+  quota_stop: boolean;
   core_mode: string;
   ip_pref: "ipv4" | "ipv6" | "ipv4_only";
   ingress_ack: boolean;
@@ -34,10 +35,10 @@ interface ServerForm {
   enabled: boolean;
 }
 
-const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", core_mode: "lean", ip_pref: "ipv4", ingress_ack: false, strict_source: false, udp_over_tcp: false, cert_mode: "self_signed", enabled: true };
+const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", quota_stop: false, core_mode: "lean", ip_pref: "ipv4", ingress_ack: false, strict_source: false, udp_over_tcp: false, cert_mode: "self_signed", enabled: true };
 
 function toForm(s: Server): ServerForm {
-  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, core_mode: s.core_mode, ip_pref: s.ipv4_only ? "ipv4_only" : s.prefer_ipv6 ? "ipv6" : "ipv4", ingress_ack: s.ingress_ack, strict_source: s.strict_source, udp_over_tcp: s.udp_over_tcp, cert_mode: s.cert_mode, enabled: s.enabled };
+  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, quota_stop: s.quota_stop, core_mode: s.core_mode, ip_pref: s.ipv4_only ? "ipv4_only" : s.prefer_ipv6 ? "ipv6" : "ipv4", ingress_ack: s.ingress_ack, strict_source: s.strict_source, udp_over_tcp: s.udp_over_tcp, cert_mode: s.cert_mode, enabled: s.enabled };
 }
 
 function toPayload(f: ServerForm) {
@@ -93,6 +94,7 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
         </Field>
         <Field label="标签" hint="逗号分隔"><Input value={f.tags} onChange={(e) => set("tags", e.target.value)} /></Field>
         <div className="flex flex-col gap-3 sm:col-span-2">
+          <Switch checked={f.quota_stop} onChange={(v) => set("quota_stop", v)} label="配额用完就停掉这台机器上的入站，下次重置自动恢复（超量要另外付费的机器打开；不开则只提醒）" />
           <Switch checked={f.ingress_ack} onChange={(v) => set("ingress_ack", v)} label="这台机器上另有防火墙，节点端口由我自己放行（不再提示）" />
           <Switch checked={f.strict_source} onChange={(v) => set("strict_source", v)} label="作为落地机时，只接受入口机 IP 发来的中转（机器经过地址转换、看不到真实来源时不要开）" />
           <Switch checked={f.udp_over_tcp} onChange={(v) => set("udp_over_tcp", v)} label="作为 Shadowsocks 落地机时，中转来的 UDP 并进 TCP 连接（这台机器的 UDP 端口映射丢包时再开；不开则 UDP 走 UDP）" />
@@ -236,6 +238,7 @@ export function ServerDetailPage() {
       <MaintenancePanel key={s.id} server={{ id: s.id, name: s.name }} open={maintenanceOpen} onOpen={() => setMaintenanceOpen(true)} onClose={() => setMaintenanceOpen(false)} onBusyChange={setMaintenanceBusy} deleteOpen={confirmDel} onDeleteClose={() => setConfirmDel(false)} onDeleted={onServerDeleted} />
 
       {s.agent && <div className="mb-4 rounded-md border p-3 text-sm">安全状态：{s.agent_status === "pending" ? "尚未接入 agent" : !s.diagnostics?.security_version ? "旧版 agent，尚未启用新版安全策略" : !s.diagnostics.security_policy ? "本机安全策略加载失败，程序与配置变更已关闭" : s.diagnostics.security_paused ? "本机已暂停配置变更" : "更新文件校验与本机安全策略已启用"}</div>}
+      {s.quota_stopped && <div className="mb-4 rounded-md border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300">本期配额用完，这台机器上的入站已停{s.usage?.next_reset ? `，${fmtPeriodDay(s.usage.next_reset)}重置后自动恢复` : "，用量回到配额以内后自动恢复"}。想现在就恢复：调大配额、校正本期已用，或在「编辑」里关掉“配额用完就停”。</div>}
       {s.diagnostics?.metering_error && <div className="mb-4 rounded-md border border-red-500/40 p-3 text-sm text-destructive">节点流量采集异常：{s.diagnostics.metering_error}。当前用量可能未更新。</div>}
       {!maintenanceBusy && <ConfigStatusNotice server={s} retrying={republish.isPending} disabled={maintenanceBusy} onRetry={() => republish.mutate()} onDetails={() => setTab("diag")} />}
       {s.agent && s.agent_update && !s.agent_update.supported && (

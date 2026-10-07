@@ -78,18 +78,12 @@ function GeneralTab() {
         <div className="grid gap-4">
           <Field label="站点名称"><Input value={s.value("site.name")} onChange={(e) => s.set("site.name", e.target.value)} /></Field>
           <Field label="站点外部地址" hint="用户专属链接的前缀；经 Cloudflare 或反向代理时请填写"><Input value={s.value("site.url")} onChange={(e) => s.set("site.url", e.target.value)} placeholder="https://panel.example.com" /></Field>
-          <Field label="服务器流量用到多少开始提醒" hint="只看「服务器」的本期已用 ÷ 月配额（每台按自己的算法：双向或只算出站）。到了这个比例：总览出现一条黄条；配了 Telegram 也会推一次。还不停节点。用户的限额不看这个数，用尽才提醒。">
+          <Field label="服务器流量用到多少开始提醒" hint="只看「服务器」的本期已用 ÷ 月配额（每台按自己的算法：双向或只算出站）。到了这个比例：总览出现一条黄条；配了 Telegram 也会推一次。用完以后停不停，在每台服务器自己的设置里选。用户的限额不看这个数，用尽才提醒。">
             <Select value={s.value("quota.alert_percent") || "80"} onChange={(e) => s.set("quota.alert_percent", e.target.value)}>
               {(["70", "80", "90", "95"] as const).map((n) => <option key={n} value={n}>用到 {n}% 就提醒</option>)}
               {s.value("quota.alert_percent") && !["70", "80", "90", "95"].includes(s.value("quota.alert_percent")) && (
                 <option value={s.value("quota.alert_percent")}>用到 {s.value("quota.alert_percent")}%</option>
               )}
-            </Select>
-          </Field>
-          <Field label="服务器配额用尽以后（100%）" hint="「只提醒」不停机。「停掉节点」会关掉这台服务器上的全部节点，要在服务器页手动再开，不会下个月自动恢复。">
-            <Select value={s.value("quota.action") === "stop" || s.value("quota.action") === "disable" ? "disable" : "alert"} onChange={(e) => s.set("quota.action", e.target.value)}>
-              <option value="alert">只提醒，节点继续跑</option>
-              <option value="disable">停掉该服务器全部节点</option>
             </Select>
           </Field>
           <Field label="重置日按哪个时区算" hint="服务器和用户的流量，都在重置日当天这个时区的 0 点开始新的一期。">

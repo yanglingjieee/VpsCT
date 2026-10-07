@@ -50,7 +50,7 @@ func OpenWithKey(path, keyPath string) (*Store, error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			return nil, err
 		}
-		dsn = "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=secure_delete(1)&_pragma=max_page_count(262144)&_pragma=journal_size_limit(16777216)"
+		dsn = "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=secure_delete(1)&_pragma=max_page_count(262144)&_pragma=journal_size_limit(16777216)&_txlock=immediate"
 	} else {
 		dsn = "file::memory:?cache=shared&_pragma=foreign_keys(1)"
 	}
@@ -73,6 +73,10 @@ func OpenWithKey(path, keyPath string) (*Store, error) {
 		return nil, err
 	}
 	s.loadLocation(context.Background())
+	if err := s.adoptQuotaAction(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if s.migratedSecrets && path != ":memory:" {
 		if _, err = s.db.Exec("VACUUM; PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 			db.Close()

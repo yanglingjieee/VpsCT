@@ -728,4 +728,8 @@ ALTER TABLE sessions ADD COLUMN security_version INTEGER NOT NULL DEFAULT 0;`,
   tx INTEGER NOT NULL DEFAULT 0,
   adjust INTEGER NOT NULL DEFAULT 0
 );`,
+	// v34: stopping a server that used up its quota is that server's choice,
+	// and it lasts until the usage is back under the quota.
+	`ALTER TABLE servers ADD COLUMN quota_stop INTEGER NOT NULL DEFAULT 0 CHECK(quota_stop IN (0,1));
+ALTER TABLE servers ADD COLUMN quota_stopped INTEGER NOT NULL DEFAULT 0 CHECK(quota_stopped IN (0,1));`,
 }

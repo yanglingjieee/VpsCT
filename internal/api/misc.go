@@ -56,10 +56,21 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		for _, s := range servers {
-			if s.QuotaBytes > 0 {
-				if usage, err := a.Traffic.ServerUsage(ctx, s); err == nil && usage.Percent >= float64(a.Store.GetSettingInt(ctx, domain.SettingQuotaAlertPct, 80)) {
-					alerts = append(alerts, map[string]any{"level": "warn", "kind": "quota", "server_id": s.ID, "message": fmt.Sprintf("%s 本期流量已用 %.0f%%", s.Name, usage.Percent)})
+			if s.QuotaBytes <= 0 {
+				continue
+			}
+			usage, err := a.Traffic.ServerUsage(ctx, s)
+			if err != nil {
+				continue
+			}
+			if s.QuotaStopped {
+				message := fmt.Sprintf("%s 本期配额用完，入站已停", s.Name)
+				if usage.NextReset != nil {
+					message += fmt.Sprintf("，%s 重置后自动恢复", usage.NextReset.Format("01-02"))
 				}
+				alerts = append(alerts, map[string]any{"level": "error", "kind": "quota_stopped", "server_id": s.ID, "message": message})
+			} else if usage.Percent >= float64(a.Store.GetSettingInt(ctx, domain.SettingQuotaAlertPct, 80)) {
+				alerts = append(alerts, map[string]any{"level": "warn", "kind": "quota", "server_id": s.ID, "message": fmt.Sprintf("%s 本期流量已用 %.0f%%", s.Name, usage.Percent)})
 			}
 		}
 		nodes, _ := a.Store.ListNodes(ctx, store.NodeFilter{})
@@ -184,7 +195,7 @@ var editableSettings = map[string]bool{
 	domain.SettingConnlogRetention: true, domain.SettingAggRetention: true, domain.SettingConnlogSelf: true, domain.SettingSampleRetention: true, domain.SettingHourlyRetention: true,
 	domain.SettingAccessRetention: true, domain.SettingAgentOfflineSec: true, domain.SettingQuotaAlertPct: true, domain.SettingQuotaTimezone: true,
 	domain.SettingSingBoxVersion: true, domain.SettingSnellVersion: true, domain.SettingMitaVersion: true, "core.mita_sha256": true, domain.SettingRateLimitPerMin: true,
-	"core.singbox_sha256": true, "core.snell_sha256": true, "quota.action": true, "site.default_template_id": true,
+	"core.singbox_sha256": true, "core.snell_sha256": true, "site.default_template_id": true,
 	domain.SettingDefaultRuleset: true,
 }
 
@@ -194,7 +205,7 @@ var SettingDefaults = map[string]string{
 	domain.SettingTelegramDaily: "0", domain.SettingTelegramHour: "9",
 	domain.SettingConnlogRetention: "7", domain.SettingAggRetention: "90", domain.SettingConnlogSelf: "0", domain.SettingSampleRetention: "48", domain.SettingHourlyRetention: "14",
 	domain.SettingAccessRetention: "30", domain.SettingAgentOfflineSec: "120", domain.SettingQuotaAlertPct: "80",
-	domain.SettingRateLimitPerMin: "60", "quota.action": "alert", domain.SettingQuotaTimezone: "UTC",
+	domain.SettingRateLimitPerMin: "60", domain.SettingQuotaTimezone: "UTC",
 }
 
 func (a *API) coreVersions(w http.ResponseWriter, r *http.Request) error {

@@ -7,17 +7,18 @@ import (
 	"ctlvps/internal/domain"
 )
 
-const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, udp_over_tcp, cert_mode, enabled, created_at, updated_at`
+const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, quota_stop, quota_stopped, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, udp_over_tcp, cert_mode, enabled, created_at, updated_at`
 
 func scanServer(sc interface{ Scan(...any) error }) (domain.Server, error) {
 	var v domain.Server
 	var tags, created, updated string
-	var ipv4Only, preferIPv6, ingressAck, strictSource, udpOverTCP, enabled int
-	if err := sc.Scan(&v.ID, &v.Name, &v.Region, &v.PublicHost, &tags, &v.Notes, &v.QuotaBytes, &v.QuotaResetDay, &v.QuotaBilling,
+	var quotaStop, quotaStopped, ipv4Only, preferIPv6, ingressAck, strictSource, udpOverTCP, enabled int
+	if err := sc.Scan(&v.ID, &v.Name, &v.Region, &v.PublicHost, &tags, &v.Notes, &v.QuotaBytes, &v.QuotaResetDay, &v.QuotaBilling, &quotaStop, &quotaStopped,
 		&v.CoreMode, &ipv4Only, &preferIPv6, &ingressAck, &strictSource, &udpOverTCP, &v.CertMode, &enabled, &created, &updated); err != nil {
 		return v, err
 	}
 	v.Tags = jsonList[string](tags)
+	v.QuotaStop, v.QuotaStopped = quotaStop == 1, quotaStopped == 1
 	v.IPv4Only = ipv4Only == 1
 	v.PreferIPv6 = preferIPv6 == 1
 	v.IngressAck = ingressAck == 1
@@ -45,9 +46,9 @@ func (s *Store) CreateServer(ctx context.Context, v *domain.Server) error {
 		v.Tags = []string{}
 	}
 	return s.Tx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,udp_over_tcp,cert_mode,enabled,created_at,updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), fmtTime(now))
+		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,quota_stop,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,udp_over_tcp,cert_mode,enabled,created_at,updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), fmtTime(now))
 		if err != nil {
 			return err
 		}
@@ -58,15 +59,23 @@ func (s *Store) CreateServer(ctx context.Context, v *domain.Server) error {
 	})
 }
 
-// UpdateServer saves editable fields.
+// UpdateServer saves editable fields. Whether the server is stopped for its
+// quota is not one of them: see SetServerQuotaStopped.
 func (s *Store) UpdateServer(ctx context.Context, v *domain.Server) error {
 	now := s.Now()
 	if v.Tags == nil {
 		v.Tags = []string{}
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE servers SET name=?, region=?, public_host=?, tags=?, notes=?, quota_bytes=?, quota_reset_day=?, quota_billing=?, core_mode=?, ipv4_only=?, prefer_ipv6=?, ingress_ack=?, strict_source=?, udp_over_tcp=?, cert_mode=?, enabled=?, updated_at=? WHERE id=?`,
-		v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), v.ID)
+	_, err := s.db.ExecContext(ctx, `UPDATE servers SET name=?, region=?, public_host=?, tags=?, notes=?, quota_bytes=?, quota_reset_day=?, quota_billing=?, quota_stop=?, core_mode=?, ipv4_only=?, prefer_ipv6=?, ingress_ack=?, strict_source=?, udp_over_tcp=?, cert_mode=?, enabled=?, updated_at=? WHERE id=?`,
+		v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), v.ID)
 	v.UpdatedAt = now
+	return err
+}
+
+// SetServerQuotaStopped records that a server stopped carrying traffic
+// because its quota is used up, or that it carries traffic again.
+func (s *Store) SetServerQuotaStopped(ctx context.Context, id int64, stopped bool) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE servers SET quota_stopped=? WHERE id=?`, b2i(stopped), id)
 	return err
 }
 

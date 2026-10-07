@@ -45,11 +45,8 @@ func TestNetworkBillingAPIRequiresCapabilityAndAcknowledgment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.Enabled, server.QuotaBytes, server.QuotaResetDay = true, 20, 1
+	server.Enabled, server.QuotaBytes, server.QuotaResetDay, server.QuotaStop = true, 20, 1, true
 	if err = c.api.Store.UpdateServer(context.Background(), &server); err != nil {
-		t.Fatal(err)
-	}
-	if err = c.api.Store.SetSetting(context.Background(), "quota.action", "stop"); err != nil {
 		t.Fatal(err)
 	}
 	resp = c.do("POST", "/api/agent/v1/heartbeat", agentproto.Heartbeat{NetworkBillingSwitch: sw}, 200)
@@ -57,7 +54,7 @@ func TestNetworkBillingAPIRequiresCapabilityAndAcknowledgment(t *testing.T) {
 		t.Fatal("missing ACK")
 	}
 	server, err = c.api.Store.GetServer(context.Background(), sid)
-	if err != nil || server.Enabled {
+	if err != nil || !server.QuotaStopped {
 		t.Fatal("cutover tail did not enforce quota", err)
 	}
 	c.do("POST", "/api/agent/v1/heartbeat", agentproto.Heartbeat{NetworkBillingSwitch: sw}, 200)

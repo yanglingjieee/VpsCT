@@ -187,6 +187,10 @@ export interface Server {
   quota_bytes: number;
   quota_reset_day: number;
   quota_billing: "dual" | "out";
+  /** Stop the inbounds while the quota is used up; they come back at the next reset. */
+  quota_stop: boolean;
+  /** The server is stopped that way right now. */
+  quota_stopped: boolean;
   core_mode: "stable" | "lean";
   ipv4_only: boolean;
   prefer_ipv6: boolean;

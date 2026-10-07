@@ -263,29 +263,42 @@ func (a *API) agentHeartbeat(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// checkServerQuota alerts (and optionally blocks) when a VPS exceeds its quota.
+// checkServerQuota alerts as a server nears its quota and, where the server is
+// set to stop, takes its inbounds down while the quota is used up. It carries
+// traffic again as soon as usage is back under the quota: at the next reset,
+// or when the quota, the count or the choice itself is changed.
 func (a *API) checkServerQuota(ctx context.Context, s domain.Server) {
-	if s.QuotaBytes <= 0 {
-		return
-	}
 	u, err := a.Traffic.ServerUsage(ctx, s)
 	if err != nil {
 		return
 	}
 	pct := a.Store.GetSettingInt(ctx, domain.SettingQuotaAlertPct, 80)
-	if a.Notify != nil && u.Percent >= float64(pct) {
+	if a.Notify != nil && s.QuotaBytes > 0 && u.Percent >= float64(pct) {
 		key := fmt.Sprintf("quota:%d:%s", s.ID, u.PeriodStart.Format("2006-01-02"))
 		if u.OverQuota {
 			key += ":over"
 		}
 		a.Notify.SendDedup(ctx, key, 24*time.Hour, fmt.Sprintf("⚠️ %s 本期流量已用 %.1f%% (%s / %s)", s.Name, u.Percent, humanBytes(u.Billed), humanBytes(u.Quota)))
 	}
-	action := a.Store.GetSetting(ctx, "quota.action", "alert")
-	if u.OverQuota && (action == "disable" || action == "stop") && s.Enabled {
-		s.Enabled = false
-		_ = a.Store.UpdateServer(ctx, &s)
-		_, _, _ = a.Desired.Publish(ctx, s.ID)
-		_ = a.Store.AddAudit(ctx, domain.AuditEvent{Action: "server.auto_disable", Target: s.Name, Detail: mustJSON(map[string]any{"billed": u.Billed, "quota": u.Quota})})
+	stop := s.QuotaStop && u.OverQuota
+	if stop == s.QuotaStopped {
+		return
+	}
+	if err := a.Store.SetServerQuotaStopped(ctx, s.ID, stop); err != nil {
+		a.Logger.Warn("server quota stop", "server", s.Name, "err", err)
+		return
+	}
+	_, _, _ = a.Desired.Publish(ctx, s.ID)
+	action, text := "server.quota_resume", fmt.Sprintf("🟢 %s 的流量回到配额以内，入站已恢复", s.Name)
+	if stop {
+		action, text = "server.quota_stop", fmt.Sprintf("⛔ %s 本期配额用完（%s / %s），入站已停", s.Name, humanBytes(u.Billed), humanBytes(u.Quota))
+		if u.NextReset != nil {
+			text += fmt.Sprintf("，%s 重置后自动恢复", u.NextReset.Format("01-02"))
+		}
+	}
+	_ = a.Store.AddAudit(ctx, domain.AuditEvent{Action: action, Target: s.Name, Detail: mustJSON(map[string]any{"billed": u.Billed, "quota": u.Quota})})
+	if a.Notify != nil {
+		a.Notify.SendDedup(ctx, fmt.Sprintf("%s:%d:%s", action, s.ID, u.PeriodStart.Format("2006-01-02")), time.Hour, text)
 	}
 }
 

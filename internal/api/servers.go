@@ -140,6 +140,7 @@ type serverInput struct {
 	QuotaBytes    int64    `json:"quota_bytes"`
 	QuotaResetDay int      `json:"quota_reset_day"`
 	QuotaBilling  string   `json:"quota_billing"`
+	QuotaStop     bool     `json:"quota_stop"`
 	CoreMode      string   `json:"core_mode"`
 	IPv4Only      bool     `json:"ipv4_only"`
 	PreferIPv6    bool     `json:"prefer_ipv6"`
@@ -169,6 +170,7 @@ func (in serverInput) apply(s *domain.Server) error {
 		return httpx.BadRequest("计费方式无效")
 	}
 	s.QuotaBilling = mode
+	s.QuotaStop = in.QuotaStop
 	switch domain.CoreMode(in.CoreMode) {
 	case "", domain.CoreModeStable:
 		s.CoreMode = domain.CoreModeStable
@@ -277,11 +279,16 @@ func (a *API) updateServer(w http.ResponseWriter, r *http.Request) error {
 	if err := a.Store.UpdateInheritedNodeHosts(r.Context(), s.ID, s.PublicHost); err != nil {
 		return err
 	}
+	// A new quota, reset day or stop choice may stop the server or let it run.
+	a.checkServerQuota(r.Context(), s)
 	_, _, _ = a.Desired.Publish(r.Context(), s.ID)
 	// Member credentials copy their listener's address, and landings only
 	// accept the entry servers' addresses.
 	a.syncLines(r)
 	a.audit(r, "server.update", s.Name, nil)
+	if s, err = a.Store.GetServer(r.Context(), id); err != nil {
+		return err
+	}
 	httpx.OK(w, a.serverView(r, s, true))
 	return nil
 }
@@ -318,6 +325,9 @@ func (a *API) calibrateServer(w http.ResponseWriter, r *http.Request) error {
 	}
 	a.audit(r, "server.calibrate_usage", s.Name, map[string]any{"used_bytes": used})
 	a.checkServerQuota(r.Context(), s)
+	if s, err = a.Store.GetServer(r.Context(), id); err != nil {
+		return err
+	}
 	httpx.OK(w, a.serverView(r, s, true))
 	return nil
 }

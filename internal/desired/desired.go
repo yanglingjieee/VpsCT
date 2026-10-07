@@ -109,7 +109,8 @@ func (b *Builder) Build(ctx context.Context, server domain.Server) (*agentproto.
 	if mitaVersion == 0 {
 		delete(ds.Versions, "mita")
 	}
-	if !server.Enabled {
+	// Disabled by hand, or stopped until its used-up quota resets.
+	if !server.Enabled || server.QuotaStopped {
 		ds.Forwards, err = b.Store.DesiredForwards(ctx, server.ID)
 		if err != nil {
 			return nil, err

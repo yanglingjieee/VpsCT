@@ -34,7 +34,7 @@ export function ServerCard({ s }: { s: Server }) {
   const usageLabel = !u?.next_reset ? "近 30 天流量" : u.billing === "out" ? "本期出站流量" : "本期流量";
   return (
     <Link to={`/servers/${s.id}`} className="block min-w-0">
-      <Card className={cn("h-full p-4 transition-colors hover:bg-accent/30", s.agent_status === "offline" && "border-rose-500/40")}>
+      <Card className={cn("h-full p-4 transition-colors hover:bg-accent/30", (s.agent_status === "offline" || s.quota_stopped) && "border-rose-500/40")}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="flex items-center gap-2 font-medium"><span className={cn("h-2 w-2 shrink-0 rounded-full", dot, s.agent_status === "online" && "shadow-[0_0_0_3px_rgba(16,185,129,0.18)]")} /><span className="break-words">{s.name}</span></p>
@@ -59,6 +59,7 @@ export function ServerCard({ s }: { s: Server }) {
           <span>{m ? `运行 ${fmtDuration(m.uptime_sec)}` : "—"}</span>
           <span>{m ? `${m.tcp_conns} TCP · ${m.udp_conns} UDP` : ""}</span>
         </p>
+        {s.quota_stopped && <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">配额用完，入站已停{u?.next_reset && `，${fmtResetIn(u.next_reset, "恢复")}`}</p>}
         {trouble && <p className="mt-2 break-words text-xs text-amber-600 dark:text-amber-400">{s.agent?.apply_error || "等待同步配置"}</p>}
       </Card>
     </Link>
