@@ -10,7 +10,7 @@
 
 | 概念 | 含义 | 代码里的名字 |
 |---|---|---|
-| 入站 | 某台服务器上监听的一个端口（VLESS + Reality） | `domain.Node`，`source=deployed`，没有 `attach_node_id` |
+| 入站 | 某台服务器上监听的一个端口；协议限于能一个端口多个用户的六种 | `domain.Node`，`source=deployed`，没有 `attach_node_id`；`domain.ProtocolShareable` |
 | 线路 | 用户在客户端里看到的一个节点：直连一个入站，或入口入站中转到落地入站 | `domain.Line` |
 | 用户 | 一个使用者：线路范围、规则、限额、专属链接 | `domain.Share` 加它关联的 `Subscription` |
 | 用户凭据 | 用户在某条线路的某台机器上的凭据，各自计量 | `domain.Node`，有 `attach_node_id`、`line_id`；落地一侧 `landing=true` |
@@ -19,6 +19,7 @@
 几条必须保持的性质：
 
 - **一个入站多个用户**：凭据是入站 `users` 里的一项，按 `auth_user` 路由到带各自 `routing_mark` 的出站，nftables 按 mark 计量和封禁。凭据不占端口。
+- **落地只能是入口机不靠证书就能确认身份的协议**（VLESS Reality、Shadowsocks 2022，`domain.ProtocolLanding`）；入口可以是六种里任意一种。Snell、mieru、WireGuard 一个端口只有一个身份，不提供。
 - **中转在入口机上完成**：中转线路的入口凭据带一个 `Relay`，入口机用该用户在落地机上的凭据转发过去。客户端拿到的每条线路都是入口机上的一条普通节点，落地机的地址和凭据不进任何用户配置。
 - **两台机器都计量、都算给用户**。不要再引入“只算一次”的特例。
 - **停用只影响本人**：用户不在正常状态时，他的凭据从入站用户列表里去掉、对应 mark 丢弃。
