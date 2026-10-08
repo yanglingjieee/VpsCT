@@ -246,12 +246,12 @@ func TestOperatorIsToldOnceWithWhatMatters(t *testing.T) {
 		if n.LineID != nil && n.Landing {
 			for _, m := range members {
 				if m.LineID != nil && *m.LineID == *n.LineID {
-					_ = st.AddTraffic(ctx, store.SubjectNode, m.ID, now, 1<<20, 3<<20)
+					_ = st.AddTraffic(ctx, store.SubjectNode, m.ID, now, 2<<20, 6<<20)
 				}
 			}
 		}
 	}
-	_ = st.AddTraffic(ctx, store.SubjectShare, id, now, 2<<20, 6<<20)
+	_ = st.AddTraffic(ctx, store.SubjectShare, id, now, 4<<20, 12<<20)
 	now = now.Add(time.Minute)
 	for _, name := range []string{"entry", "landing", "probe"} {
 		beat(name, 501, 551)
@@ -261,12 +261,18 @@ func TestOperatorIsToldOnceWithWhatMatters(t *testing.T) {
 		t.Fatal(err)
 	}
 	daily := tgChat.next(t, &seen, 1)[0]
-	has(t, daily, "📊 <b>土豆饼的家 · 10-07 周三 日报</b>", "3 台服务器都在线 · 2 条线路都可用 · 1 件事还没解决",
-		"<b>用户</b>", "<b>YANG</b>　今天 8.00 MB · 本期 1.03 KB / 97.7 KB（1.1%） · 11-01 重置", "　└ 家宽 8.00 MB", "<b>sansan</b>　今天 0 B · 本期 0 B（不限量）",
-		"<b>服务器</b>", "🟢 <b>入口机</b>　今天 1.03 KB · 本期 1.03 KB / 1000 B（105%） · 11-01 重置", "<b>只做监控</b>", "🟢 <b>探针</b>",
-		"<b>今天发生的事</b>", "· 21:03 🔴 落地机 失联，持续 12 分钟", "· 21:15 🔴 探针 失联，持续 6 分钟", "· 21:21 ⚠️ YANG 本期流量用到 85%\n", "⛔ YANG 本期流量用完了，线路已停，持续 30 分钟",
+	// Who carried the day and over which line; a user who carried next to
+	// nothing only by name. Servers that lines run through or that have a
+	// quota; one that is only watched and well is left out.
+	has(t, daily, "📊 <b>土豆饼的家 · 10-07 周三 日报</b>\n⚠️ 3 台服务器都在线 · 2 条线路都可用 · 1 件事还没解决",
+		"<b>👤 用户 · 今天</b>\n<b>YANG</b>　16.0 MB\n　家宽\n不到 10 MB：sansan\n\n",
+		"<b>🖥 服务器 · 今天</b>\n<b>入口机</b>　1.03 KB · 本期 105%\n<b>落地机</b>　",
+		"<b>🗓 今天发生的事</b>", "· 21:03 🔴 落地机 失联，持续 12 分钟", "· 21:15 🔴 探针 失联，持续 6 分钟", "· 21:21 ⚠️ YANG 本期流量用到 85%\n", "⛔ YANG 本期流量用完了，线路已停，持续 30 分钟",
 		"· 21:53 🔴 落地机 配置下发失败，持续不到 1 分钟",
-		"<b>还没解决</b>", "· ⛔ 入口机 本期流量用完了（21:21 起，已经 33 分钟）")
+		"<b>⏳ 还没解决</b>", "· ⛔ 入口机 本期流量用完了（21:21 起，已经 33 分钟）")
+	if strings.Contains(daily, "<b>探针</b>") {
+		t.Fatalf("a watched server that is well has no line:\n%s", daily)
+	}
 	if strings.Contains(daily, "要留意") {
 		t.Fatalf("nothing runs short here:\n%s", daily)
 	}
@@ -289,7 +295,7 @@ func TestOperatorIsToldOnceWithWhatMatters(t *testing.T) {
 	if err := rep.PostDaily(ctx); err != nil {
 		t.Fatal(err)
 	}
-	has(t, tgChat.next(t, &seen, 1)[0], "10-07 周三 日报", "<b>YANG</b>　昨天", "<b>昨天发生的事</b>\n· 21:03 🔴 落地机 失联", "要留意", "· YANG：近 7 天日均 8.00 MB，照这个速度约 10-08 用完，比重置早 24 天。")
+	has(t, tgChat.next(t, &seen, 1)[0], "10-07 周三 日报", "<b>👤 用户 · 昨天</b>\n<b>YANG</b>　16.0 MB", "<b>🗓 昨天发生的事</b>\n· 21:03 🔴 落地机 失联", "<b>📌 要留意</b>", "· YANG：近 7 天日均 16.0 MB，照这个速度约 10-08 用完，比重置早 24 天。")
 
 	// Told to stop when its quota is used up, the server says so in place of
 	// the plain "used up", and answers that once it carries traffic again.

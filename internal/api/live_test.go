@@ -280,11 +280,11 @@ func TestOperatorIsToldAboutRenewalsAndLineQuality(t *testing.T) {
 	}
 
 	// ---- line quality ----
-	targets, err := st.ReplaceProbeTargets(ctx, []domain.ProbeTarget{{Name: "四川电信", Host: "sc-ct-v4.ip.zstaticcdn.com", Port: 80, Carrier: "ct", OnCard: true}, {Name: "四川联通", Host: "sc-cu-v4.ip.zstaticcdn.com", Port: 80, Carrier: "cu"}})
+	targets, err := st.ReplaceProbeTargets(ctx, []domain.ProbeTarget{{Name: "四川电信", Host: "sc-ct-v4.ip.zstaticcdn.com", Port: 80, Carrier: "ct", OnCard: true}, {Name: "四川联通", Host: "sc-cu-v4.ip.zstaticcdn.com", Port: 80, Carrier: "cu"}, {Name: "四川移动", Host: "sc-cm-v4.ip.zstaticcdn.com", Port: 80, Carrier: "cm", OnCard: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ct, cu := targets[0].ID, targets[1].ID
+	ct, cu, cm := targets[0].ID, targets[1].ID, targets[2].ID
 	// Every server has reported, and each pair has a usual round trip of
 	// 180 ms from the day before.
 	for _, s := range []map[string]any{entry, landing, watched} {
@@ -333,13 +333,17 @@ func TestOperatorIsToldAboutRenewalsAndLineQuality(t *testing.T) {
 	tgChat.next(t, &seen, 0)
 
 	// The daily report says how far each entry was from the targets shown
-	// on the cards; the other servers and targets are left out.
+	// on the cards, in the order of its heading, and names a target only
+	// where probes were lost; the other servers and targets are left out.
+	if err := st.AddLiveMinutes(ctx, nil, []store.ProbePoint{{ServerID: id(entry), TargetID: cm, TS: now.Add(-time.Hour).Unix() / 3600 * 3600, Sent: 60, Lost: 3, RTTSum: 57 * 200_000, RTTMin: 190_000, RTTMax: 240_000}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := rep.PostDaily(ctx); err != nil {
 		t.Fatal(err)
 	}
 	daily := tgChat.next(t, &seen, 1)[0]
-	has(t, daily, "<b>入口到国内（今天）</b>\n<b>搬瓦工</b>　四川电信 180 ms，丢包 0%\n\n")
-	if strings.Contains(daily, "四川联通") || strings.Contains(daily, "AT&amp;T</b>　四川") {
+	has(t, daily, "<b>📶 入口到国内</b>（四川电信 / 四川移动）\n<b>搬瓦工</b>　180 / 200 ms\n　丢包：四川移动 5.0%\n\n")
+	if strings.Contains(daily, "四川联通") || strings.Contains(daily, "AT&amp;T</b>　180") {
 		t.Fatalf("only entries and the targets on the cards belong in the report:\n%s", daily)
 	}
 

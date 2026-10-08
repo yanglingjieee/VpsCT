@@ -10,13 +10,11 @@ import { ProbeRows, Spark, ratio, useVitals, type Vitals } from "@/components/pr
 /** One of the two live rates: with the period's traffic, what a card is read for first. */
 function Rate({ icon, label, value, trail }: { icon: ReactNode; label: string; value: string; trail?: number[] }) {
   return (
-    <div className="min-w-0 overflow-hidden rounded-xl bg-muted/50">
-      <div className="px-3 pt-2">
-        <p className="flex items-center gap-1 text-xs text-muted-foreground">{icon}{label}</p>
-        <p className="mt-0.5 truncate text-lg font-semibold tabular-nums leading-tight">{value}</p>
-      </div>
-      {/* The last two minutes, under the figure; the room is kept when there is nothing to draw. */}
-      <div className="mt-1 h-4 text-primary/80">{trail && <Spark values={trail} />}</div>
+    <div className="min-w-0 rounded-xl bg-muted/50 px-3 pb-2.5 pt-2">
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">{icon}{label}</p>
+      <p className="mt-0.5 truncate text-lg font-semibold tabular-nums leading-tight">{value}</p>
+      {/* The last two minutes, under the figure and inside the tile's padding; the room is kept when there is nothing to draw. */}
+      <div className="mt-1.5 h-6 text-primary/80">{trail && <Spark values={trail} />}</div>
     </div>
   );
 }

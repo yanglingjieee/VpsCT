@@ -13,13 +13,11 @@ import { TimeChart, byteAxis, capacityAxis, type ChartSeries, type TimePoint } f
 
 function Tile({ label, value, sub, trail, className }: { label: React.ReactNode; value: string; sub?: React.ReactNode; trail?: number[]; className?: string }) {
   return (
-    <Card className={cn("flex flex-col overflow-hidden", className)}>
-      <div className="p-4 pb-2">
-        <p className="flex items-center gap-1 text-xs text-muted-foreground">{label}</p>
-        <p className="mt-1 truncate text-2xl font-semibold tabular-nums leading-tight">{value}</p>
-        {sub && <p className="mt-0.5 truncate text-xs tabular-nums text-muted-foreground">{sub}</p>}
-      </div>
-      <div className="mt-auto h-7 text-primary/80">{trail && trail.length > 1 && <Spark values={trail} />}</div>
+    <Card className={cn("flex flex-col p-4", className)}>
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-2xl font-semibold tabular-nums leading-tight">{value}</p>
+      {sub && <p className="mt-0.5 truncate text-xs tabular-nums text-muted-foreground">{sub}</p>}
+      <div className="mt-auto h-8 pt-2 text-primary/80">{trail && trail.length > 1 && <Spark values={trail} />}</div>
     </Card>
   );
 }

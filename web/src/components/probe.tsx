@@ -39,24 +39,34 @@ export function useVitals(s: Server): Vitals | undefined {
 
 export const ratio = (used?: number, total?: number) => (total ? ((used ?? 0) / total) * 100 : null);
 
-/** The last couple of minutes of one number, as a line with a wash under it. */
+/**
+ * The last couple of minutes of one number: a line with a wash under it,
+ * ending in a dot at the newest reading. It fills the box it is given and
+ * keeps inside it, so the box can sit in a tile's padding.
+ */
 export function Spark({ values, className }: { values: number[]; className?: string }) {
   const id = React.useId();
   if (values.length < 2) return null;
   const top = Math.max(1, ...values);
   const step = 100 / (values.length - 1);
-  const line = values.map((v, i) => `${(i * step).toFixed(2)},${(30 - (v / top) * 26 - 2).toFixed(2)}`).join(" ");
+  // The line stays clear of the top and bottom edges by the dot's radius.
+  const y = (v: number) => 26 - (v / top) * 22;
+  const line = values.map((v, i) => `${(i * step).toFixed(2)},${y(v).toFixed(2)}`).join(" ");
   return (
-    <svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden className={cn("h-full w-full", className)}>
-      <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity={0.22} />
-          <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <polygon points={`0,30 ${line} 100,30`} fill={`url(#${id})`} />
-      <polyline points={line} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div aria-hidden className={cn("relative h-full w-full", className)}>
+      {/* Narrower than the box by the dot's radius: the line ends at the dot's centre. */}
+      <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="absolute inset-y-0 left-0 h-full w-[calc(100%-3px)]">
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity={0.22} />
+            <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <polygon points={`0,30 ${line} 100,30`} fill={`url(#${id})`} />
+        <polyline points={line} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span className="absolute right-0 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-current" style={{ top: `${(y(values[values.length - 1]) / 30) * 100}%` }} />
+    </div>
   );
 }
 
