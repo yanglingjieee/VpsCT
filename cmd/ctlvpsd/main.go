@@ -192,7 +192,12 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	})
 
 	hub.Publish = a.Events.Publish
-	go hub.Run(ctx)
+	// The hub stores the running minute as it stops; the store stays open
+	// until it has.
+	hubCtx, stopHub := context.WithCancel(ctx)
+	hubDone := make(chan struct{})
+	go func() { hub.Run(hubCtx); close(hubDone) }()
+	defer func() { stopHub(); <-hubDone }()
 
 	registerJobs(sched, st, cl, subs, shares, des, rep, hub, cfg, logger)
 	go sched.Run(ctx)

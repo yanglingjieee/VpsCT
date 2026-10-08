@@ -24,8 +24,6 @@ const (
 	readTimeout  = 30 * time.Second
 	writeTimeout = 5 * time.Second
 	keepalive    = 25 * time.Second
-	// How long after the last viewer left the servers keep sending fast.
-	lingerWatched = 20 * time.Second
 	// Minutes of each probe a card draws.
 	StripMinutes = 30
 	// Recent readings kept for the little charts beside the live numbers.
@@ -53,6 +51,10 @@ type Hub struct {
 	// Revalidate is how often a connection's agent is checked to still be
 	// allowed to speak for its server.
 	Revalidate time.Duration
+	// Linger is how long after the last viewer left the servers keep
+	// sending every second: a reload should not slow them down and speed
+	// them up again.
+	Linger time.Duration
 
 	mu       sync.Mutex
 	servers  map[int64]*server
@@ -142,7 +144,7 @@ func (c *conn) write() {
 // New builds a hub and loads what it needs to carry on where the last run of
 // the panel stopped: the targets, and the last half hour of each probe.
 func New(ctx context.Context, st Store, logger *slog.Logger, publish func(string, any)) (*Hub, error) {
-	h := &Hub{Store: st, Logger: logger, Publish: publish, Now: func() time.Time { return time.Now().UTC() }, Revalidate: time.Minute,
+	h := &Hub{Store: st, Logger: logger, Publish: publish, Now: func() time.Time { return time.Now().UTC() }, Revalidate: time.Minute, Linger: 20 * time.Second,
 		servers: map[int64]*server{}, targets: map[int64]domain.ProbeTarget{}, interval: liveproto.IdleIntervalMs}
 	if err := h.Reload(ctx); err != nil {
 		return nil, err
@@ -511,7 +513,7 @@ func (h *Hub) Run(ctx context.Context) {
 			news := h.news
 			h.news = Event{}
 			watched := h.viewers > 0
-			if !watched && h.Now().Sub(h.lastView) > lingerWatched {
+			if !watched && h.Now().Sub(h.lastView) >= h.Linger {
 				h.pace(liveproto.IdleIntervalMs)
 			}
 			h.mu.Unlock()

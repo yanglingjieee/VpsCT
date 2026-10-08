@@ -31,6 +31,9 @@ func (c *client) withLive(t *testing.T) *live.Hub {
 		t.Fatal(err)
 	}
 	c.api.Live = hub
+	// The token is looked up for every message, and the servers slow down
+	// as soon as nobody watches.
+	hub.Revalidate, hub.Linger = 0, 0
 	done := make(chan struct{})
 	go func() { hub.Run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -55,7 +58,6 @@ func (c *client) dialLive(t *testing.T, token string) (*websocket.Conn, error) {
 func TestLiveChannelReachesThePanel(t *testing.T) {
 	c := newTestAPI(t)
 	hub := c.withLive(t)
-	hub.Revalidate = 0 // the token is looked up for every message
 	c.do("POST", "/api/v1/auth/setup", map[string]any{"setup_token": testSetupToken, "username": "admin", "password": "password123"}, 200)
 	admin := c.cookie
 	srv := c.do("POST", "/api/v1/servers", map[string]any{"name": "搬瓦工", "price": 49.99, "currency": "$", "cycle": "year", "expires_at": "2026-11-29", "auto_renew": true}, 201)
@@ -187,9 +189,15 @@ func TestLiveChannelReachesThePanel(t *testing.T) {
 	}
 	c.do("GET", "/api/v1/servers/"+itoa(srv["id"])+"/history?range=1y", nil, 400)
 
-	// The panel closes. A token that was reset no longer speaks for the
-	// server: the channel ends at the next message.
+	// The panel closes: with nobody watching, a reading every five seconds
+	// is enough.
 	stream.Body.Close()
+	if d := read(); d.IntervalMs != liveproto.IdleIntervalMs {
+		t.Fatalf("unwatched: %+v", d)
+	}
+
+	// A token that was reset no longer speaks for the server: the channel
+	// ends at the next message.
 	c.do("POST", "/api/v1/servers/"+itoa(srv["id"])+"/reset-token", nil, 204)
 	say(liveproto.Up{Sample: &liveproto.Sample{CPU: 1}})
 	_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -246,12 +254,21 @@ func TestOperatorIsToldAboutRenewalsAndLineQuality(t *testing.T) {
 	has(t, got[1], "<b>⏳ AT&amp;T 明天自动续费</b>", "会扣 $8.00/月")
 	renew()
 	tgChat.next(t, &seen, 0)
+	// The overview says the same for as long as it holds.
+	var notes []string
+	for _, a := range c.do("GET", "/api/v1/dashboard", nil, 200)["alerts"].([]any) {
+		notes = append(notes, a.(map[string]any)["level"].(string)+" "+a.(map[string]any)["message"].(string))
+	}
+	has(t, strings.Join(notes, "\n"), "warn 搬瓦工 还有 6 天 到期（2026-10-14）", "info AT&T 明天 自动续费")
 
 	// The day passes: the one that renews by itself moves on a month without
 	// a word; the other is said to have lapsed.
 	now = time.Date(2026, 10, 15, 13, 0, 0, 0, time.UTC)
 	renew()
 	has(t, tgChat.next(t, &seen, 1)[0], "<b>⛔ 搬瓦工 的到期日过了</b>", "到期日是 2026-10-14，已经过了 1 天")
+	if alerts := c.do("GET", "/api/v1/dashboard", nil, 200)["alerts"].([]any); len(alerts) != 1 || alerts[0].(map[string]any)["kind"] != "lapsed" {
+		t.Fatalf("a day that has passed is the only thing left to say: %v", alerts)
+	}
 	if s, _ := st.GetServer(ctx, id(landing)); s.ExpiresAt != "2026-11-09" {
 		t.Fatalf("an automatic renewal moves the day on by one cycle: %q", s.ExpiresAt)
 	}

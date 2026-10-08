@@ -73,6 +73,24 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) error {
 				alerts = append(alerts, map[string]any{"level": "warn", "kind": "quota", "server_id": s.ID, "message": fmt.Sprintf("%s 本期流量已用 %.0f%%", s.Name, usage.Percent)})
 			}
 		}
+		// A server about to run out, or past its day, while that holds.
+		local := now.In(a.Store.Location())
+		day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+		ahead := a.Store.GetSettingInt(ctx, domain.SettingRenewAlertDays, 7)
+		for _, s := range servers {
+			due, err := time.Parse(time.DateOnly, s.ExpiresAt)
+			if err != nil {
+				continue
+			}
+			switch left := int(due.Sub(day).Hours() / 24); {
+			case left < 0 && !s.AutoRenew:
+				alerts = append(alerts, map[string]any{"level": "error", "kind": "lapsed", "server_id": s.ID, "message": fmt.Sprintf("%s 的到期日（%s）已经过了 %d 天：续了就在「编辑」里把到期日改到下一期", s.Name, s.ExpiresAt, -left)})
+			case left >= 0 && left <= ahead && s.AutoRenew:
+				alerts = append(alerts, map[string]any{"level": "info", "kind": "renew", "server_id": s.ID, "message": fmt.Sprintf("%s %s 自动续费", s.Name, renewWhen(left))})
+			case left >= 0 && left <= ahead:
+				alerts = append(alerts, map[string]any{"level": "warn", "kind": "renew", "server_id": s.ID, "message": fmt.Sprintf("%s %s 到期（%s）", s.Name, renewWhen(left), s.ExpiresAt)})
+			}
+		}
 		nodes, _ := a.Store.ListNodes(ctx, store.NodeFilter{})
 		shares, _ := a.Store.ListShares(ctx, nil)
 		subs, _ := a.Store.ListSubscriptions(ctx)
@@ -185,6 +203,16 @@ func (a *API) trafficOverview(w http.ResponseWriter, r *http.Request) error {
 	out["shares"] = shrows
 	httpx.OK(w, out)
 	return nil
+}
+
+func renewWhen(days int) string {
+	switch days {
+	case 0:
+		return "今天"
+	case 1:
+		return "明天"
+	}
+	return fmt.Sprintf("还有 %d 天", days)
 }
 
 // ---- settings ----
