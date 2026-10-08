@@ -48,7 +48,7 @@ func (r *Reporter) PostDaily(ctx context.Context) error {
 var weekdays = [...]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
 
 // lasting are the kinds of incident whose length is worth telling.
-var lasting = map[string]bool{"offline": true, "core": true, "stop": true, "out": true, "expired": true, "apply": true, "sync": true, "clock": true}
+var lasting = map[string]bool{"offline": true, "core": true, "stop": true, "out": true, "expired": true, "apply": true, "sync": true, "clock": true, "quality": true, "probe": true, "lapsed": true}
 
 // daily writes the report of a day: who used how much and over which lines,
 // how every server stands against its quota, what will run short, and what
@@ -166,6 +166,39 @@ func (r *Reporter) daily(ctx context.Context) (string, error) {
 		}
 	}
 
+	// ---- the way in ----
+	// Users connect to the entry servers from inside the country, so the
+	// report says how far each was from the targets shown on the cards.
+	way := []string{"<b>入口到国内（" + label + "）</b>"}
+	targets, err := r.Store.ListProbeTargets(ctx)
+	if err != nil {
+		return "", err
+	}
+	probes, err := r.Store.ProbeStats(ctx, 0, store.LiveHour, from.Truncate(time.Hour), to, 1<<40)
+	if err != nil {
+		return "", err
+	}
+	for _, s := range sc.servers {
+		if !sc.entry[s.ID] {
+			continue
+		}
+		var seen []string
+		for _, t := range targets {
+			for _, p := range probes {
+				if t.OnCard && p.ServerID == s.ID && p.TargetID == t.ID && p.Sent > 0 {
+					text := esc(t.Name) + " "
+					if p.Sent > p.Lost {
+						text += ms(p.Avg()) + "，"
+					}
+					seen = append(seen, text+"丢包 "+percent(float64(p.Lost)/float64(p.Sent)*100))
+				}
+			}
+		}
+		if len(seen) > 0 {
+			way = append(way, "<b>"+esc(s.Name)+"</b>　"+strings.Join(seen, " · "))
+		}
+	}
+
 	// ---- what happened ----
 	past, err := r.Store.IncidentsBetween(ctx, from, to)
 	if err != nil {
@@ -213,7 +246,7 @@ func (r *Reporter) daily(ctx context.Context) (string, error) {
 	sections := [][]string{
 		{fmt.Sprintf("📊 <b>%s · %s %s 日报</b>", esc(site), from.Format("01-02"), weekdays[from.Weekday()]), head},
 	}
-	for _, section := range [][]string{people, carrying, watching} {
+	for _, section := range [][]string{people, carrying, watching, way} {
 		if len(section) > 1 {
 			sections = append(sections, section)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"ctlvps/internal/agentbudget"
+	"ctlvps/internal/agentnet"
 	"ctlvps/internal/agentwork"
 	"encoding/hex"
 	"encoding/json"
@@ -200,6 +201,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	go a.Tail.Run(ctx)
 	go a.PrivateTail.Run(ctx)
 	go a.connlogLoop(ctx)
+	// The live readings and probes run beside the heartbeat, in the
+	// unprivileged worker; like the isolated transport, only as root on Linux.
+	if runtime.GOOS == "linux" && os.Geteuid() == 0 {
+		go agentnet.Live(ctx, a.Logger, a.State.ServerURL, a.State.AgentToken, a.Version)
+	}
 
 	// always apply once on start so a self-update can rewrite units
 	if a.maintenanceAction() != "uninstall" {

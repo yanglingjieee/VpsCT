@@ -19,11 +19,12 @@ type scene struct {
 	lines   []domain.Line          // enabled lines, in menu order
 	named   map[int64]string       // every line's name, enabled or not
 	hosts   map[int64][]int64      // line → the servers it runs through, entry first
+	entry   map[int64]bool         // the servers users connect to: an enabled line starts there
 	silence time.Duration          // how long without a heartbeat counts as lost
 }
 
 func (r *Reporter) look(ctx context.Context) (*scene, error) {
-	sc := &scene{now: r.Store.Now().In(r.Store.Location()), server: map[int64]domain.Server{}, agent: map[int64]domain.Agent{}, hosts: map[int64][]int64{}, named: map[int64]string{}}
+	sc := &scene{now: r.Store.Now().In(r.Store.Location()), server: map[int64]domain.Server{}, agent: map[int64]domain.Agent{}, hosts: map[int64][]int64{}, named: map[int64]string{}, entry: map[int64]bool{}}
 	sc.silence = time.Duration(r.Store.GetSettingInt(ctx, domain.SettingAgentOfflineSec, 120)) * time.Second
 	var err error
 	if sc.servers, err = r.Store.ListServers(ctx); err != nil {
@@ -61,6 +62,7 @@ func (r *Reporter) look(ctx context.Context) (*scene, error) {
 		sc.lines = append(sc.lines, l)
 		if id, ok := where[l.EntryNodeID]; ok {
 			sc.hosts[l.ID] = append(sc.hosts[l.ID], id)
+			sc.entry[id] = true
 		}
 		if l.LandingNodeID != nil {
 			if id, ok := where[*l.LandingNodeID]; ok {

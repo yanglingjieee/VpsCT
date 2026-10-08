@@ -25,6 +25,8 @@
 - **两台机器都计量、都算给用户**。不要再引入“只算一次”的特例。
 - **停用只影响本人**：用户不在正常状态时，他的凭据从入站用户列表里去掉、对应 mark 丢弃。
 - **没有入站的服务器只被观察**：下发状态里不带主机调优（`desired.watchOnly`），agent 不动它的拥塞控制和时间同步；安装脚本只补装缺少的依赖。探针接入别的用途的机器时不能改动它。
+- **实时数据不进心跳**：每秒的读数和探测结果走 agent 的常驻子进程（`internal/agentlive`，以 `ctlvps-net` 运行）到控制端 `internal/live.Hub` 的一条 WebSocket，再经事件流到网页；数据库只按分钟写。心跳仍是流量计量和配置下发的唯一通道，实时通道断了不影响它。子进程没有回到 root 进程的通道（只有日志），不要给它加。
+- **探测目标是面板里的内容**（`probe_targets`），所有服务器都探；只有入口机的结果会触发 Telegram 提醒。
 - **不回退直连**：分组里没有线路时填 `REJECT`（`subscription.EmptyGroupPolicy`）。
 - 用户的专属链接是 `/r/<24 位>`：浏览器打开返回前端的个人页（`web/src/pages/public.tsx`，数据来自同一地址加 `?page=1`），客户端打开返回配置。小火箭和 Surge 用地址末段给配置起名，一键导入给它们的是带名字的形式 `/r/<码>/<格式>/<站点名>`（名字只是给客户端看的，服务端不读）；各客户端里配置的名字一律是站点名，不是用户名。
 
@@ -41,6 +43,7 @@
 | `internal/core/singbox.go` | 生成 sing-box 服务端配置 |
 | `internal/subscription` | 各客户端格式的渲染；`lines.go` 按线路出节点，`norules.go` 是内置无规则 |
 | `internal/store/schema.go` | 数据库迁移；本分支从 v31 开始 |
+| `internal/liveproto`、`internal/agentlive`、`internal/live` | 实时通道：消息格式、agent 端的子进程（采样和 TCP 探测）、控制端的 Hub（内存里的现状、按分钟落库）；`internal/hostmetrics` 是读 `/proc` 的公共代码 |
 | `internal/report` | Telegram 推送：每件事从发生到解决各说一次（`incidents` 表记着说过什么），以及日报。只推送，不接收消息 |
 
 上游的出口、转发、托管中转、模板、预设、多账号等后端代码仍在仓库里但没有界面入口，也没有被本分支的功能依赖。改动时不必为它们加新功能；要删就连同测试一起删干净。

@@ -92,6 +92,11 @@ function GeneralTab() {
               {RESET_ZONES.map(([zone, label]) => <option key={zone} value={zone}>{label}</option>)}
             </Select>
           </Field>
+          <Field label="服务器到期前几天提醒" hint="填了到期日的服务器，提前这么多天在 Telegram 里说一次；自动续费的也会说，好让你看一眼余额。">
+            <Select value={s.value("server.renew_alert_days") || "7"} onChange={(e) => s.set("server.renew_alert_days", e.target.value)}>
+              {["3", "7", "14", "30"].map((n) => <option key={n} value={n}>提前 {n} 天</option>)}
+            </Select>
+          </Field>
           <Field label="agent 离线判定 (秒)"><Input type="number" min={30} value={s.value("agent.offline_after_seconds")} onChange={(e) => s.set("agent.offline_after_seconds", e.target.value)} /></Field>
         </div>
         <SaveBar s={s} />
@@ -150,6 +155,8 @@ function NotifyTab() {
           <li>服务器失联和恢复：哪些线路可能不通、现在还能用哪些；几台同时失联合成一条</li>
           <li>服务器流量到 {alertAt}%、用完、因配额停掉和恢复：还剩多少、哪天重置、照近 7 天的速度够不够用、谁用得多</li>
           <li>用户流量到 {alertAt}%、用完、快到期、到期，以及恢复</li>
+          <li>服务器快到期（提前 {s.value("server.renew_alert_days") || "7"} 天）、到期日过了，以及续上了</li>
+          <li>入口机到某家运营商近 10 分钟丢包两成以上，或延迟比平时高出八成，以及恢复（可以在下面关掉）</li>
           <li>内核没在运行或反复重启、内存不够、时钟偏差、证书快到期、配置下发失败、外部订阅同步失败</li>
         </ul>
       </div>
@@ -183,10 +190,12 @@ function NotifyTab() {
         )}
         <div>
           <div className="flex flex-wrap items-center gap-4">
+            <Switch checked={s.value("telegram.quality_alerts") !== "0"} onChange={(v) => s.set("telegram.quality_alerts", v ? "1" : "0")} label="线路质量提醒" />
             <Switch checked={s.value("telegram.daily_report") === "1"} onChange={(v) => s.set("telegram.daily_report", v ? "1" : "0")} label="每日日报" />
             <Field label="发送时刻 (0-23 时)"><Input type="number" min={0} max={23} className="w-24" value={s.value("telegram.daily_hour")} onChange={(e) => s.set("telegram.daily_hour", e.target.value)} /></Field>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            线路质量只看用户连的入口机：落地机和只做监控的机器到国内丢不丢包不影响上网，不提醒。日报里有：
             每个人当天用了多少、走的哪条线路；每台服务器当天和本期的流量；照近 7 天的速度谁会提前用完；当天发生过什么、还有什么没解决。
             时刻按面板的时区（{zoneLabel}）算：中午 12 点前发的报前一天，之后发的报当天到那时为止。
           </p>

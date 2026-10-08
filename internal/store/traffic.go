@@ -57,34 +57,6 @@ func (s *Store) AddSample(ctx context.Context, sm domain.TrafficSample) error {
 	return err
 }
 
-// ListSamples returns raw samples for a server (node_id NULL) or a node.
-func (s *Store) ListSamples(ctx context.Context, serverID int64, nodeID *int64, since time.Time) ([]domain.TrafficSample, error) {
-	var rows *sql.Rows
-	var err error
-	if nodeID == nil {
-		rows, err = s.db.QueryContext(ctx, `SELECT server_id,node_id,ts,rx_bytes,tx_bytes FROM traffic_samples WHERE server_id=? AND node_id IS NULL AND ts>=? ORDER BY ts`, serverID, fmtTime(since))
-	} else {
-		rows, err = s.db.QueryContext(ctx, `SELECT server_id,node_id,ts,rx_bytes,tx_bytes FROM traffic_samples WHERE server_id=? AND node_id=? AND ts>=? ORDER BY ts`, serverID, *nodeID, fmtTime(since))
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []domain.TrafficSample{}
-	for rows.Next() {
-		var sm domain.TrafficSample
-		var nid sql.NullInt64
-		var ts string
-		if err := rows.Scan(&sm.ServerID, &nid, &ts, &sm.RxBytes, &sm.TxBytes); err != nil {
-			return nil, err
-		}
-		sm.NodeID = intPtr(nid)
-		sm.TS = parseTime(ts)
-		out = append(out, sm)
-	}
-	return out, rows.Err()
-}
-
 // AddTraffic adds deltas to the hourly and daily buckets of subject/id.
 func (s *Store) AddTraffic(ctx context.Context, subject string, id int64, at time.Time, up, down int64) error {
 	if up == 0 && down == 0 {

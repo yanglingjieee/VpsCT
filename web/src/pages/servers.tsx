@@ -4,16 +4,20 @@ import { MaintenancePanel } from "@/components/maintenance";
 import { ServerActions } from "@/components/server-actions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Gauge, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, ArrowUpDown, Copy, Gauge, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
 import { del, get, post, put } from "@/lib/api";
 import type { Server, Node, Series } from "@/lib/types";
-import { fmtBytes, fmtAgo, fmtDuration, fmtRate, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, BILLING_LABELS, fmtDate, fmtPeriodDay, fmtResetIn } from "@/lib/utils";
+import { fmtBytes, fmtAgo, fmtDuration, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, BILLING_LABELS, CYCLE_LABELS, fmtDate, fmtPeriodDay, fmtResetIn } from "@/lib/utils";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Confirm, Dialog, Empty, Field, Input, PageHeader, Progress, Select, Spinner, Switch, Table, Td, Th, Tr, Textarea, Pre, Tabs } from "@/components/ui";
 import { useToast } from "@/components/toast";
-import { ResetDayInput } from "@/components/datetime-picker";
-import { TrafficBars, RateArea } from "@/components/charts";
+import { DateTimeInput, ResetDayInput } from "@/components/datetime-picker";
+import { TrafficBars } from "@/components/charts";
 import { TrafficIO } from "@/components/traffic-ways";
-import { ServerCard } from "@/components/server-card";
+import { HostChips, ProbeCard, Renewal } from "@/components/server-card";
+import { LatencyNow, LiveTiles, ServerMonitor } from "@/components/server-monitor";
+import { ProbeTargetsDialog } from "@/components/probe-targets";
+import { useLive } from "@/lib/live";
+import { useVitals } from "@/components/probe";
 
 // ---------- shared form ----------
 interface ServerForm {
@@ -33,16 +37,21 @@ interface ServerForm {
   udp_over_tcp: boolean;
   cert_mode: string;
   enabled: boolean;
+  price: string;
+  currency: string;
+  cycle: Server["cycle"];
+  expires_at: string;
+  auto_renew: boolean;
 }
 
-const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", quota_stop: false, core_mode: "lean", ip_pref: "ipv4", ingress_ack: false, strict_source: false, udp_over_tcp: false, cert_mode: "self_signed", enabled: true };
+const emptyForm: ServerForm = { name: "", region: "", public_host: "", tags: "", notes: "", quota_gb: "", quota_reset_day: "1", quota_billing: "dual", quota_stop: false, core_mode: "lean", ip_pref: "ipv4", ingress_ack: false, strict_source: false, udp_over_tcp: false, cert_mode: "self_signed", enabled: true, price: "", currency: "$", cycle: "", expires_at: "", auto_renew: false };
 
 function toForm(s: Server): ServerForm {
-  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, quota_stop: s.quota_stop, core_mode: s.core_mode, ip_pref: s.ipv4_only ? "ipv4_only" : s.prefer_ipv6 ? "ipv6" : "ipv4", ingress_ack: s.ingress_ack, strict_source: s.strict_source, udp_over_tcp: s.udp_over_tcp, cert_mode: s.cert_mode, enabled: s.enabled };
+  return { name: s.name, region: s.region, public_host: s.public_host, tags: s.tags.join(","), notes: s.notes, quota_gb: bytesToGb(s.quota_bytes), quota_reset_day: String(s.quota_reset_day ?? 0), quota_billing: s.quota_billing, quota_stop: s.quota_stop, core_mode: s.core_mode, ip_pref: s.ipv4_only ? "ipv4_only" : s.prefer_ipv6 ? "ipv6" : "ipv4", ingress_ack: s.ingress_ack, strict_source: s.strict_source, udp_over_tcp: s.udp_over_tcp, cert_mode: s.cert_mode, enabled: s.enabled, price: s.price > 0 ? String(s.price) : "", currency: s.currency || "$", cycle: s.cycle, expires_at: s.expires_at, auto_renew: s.auto_renew };
 }
 
 function toPayload(f: ServerForm) {
-  return { ...f, ipv4_only: f.ip_pref === "ipv4_only", prefer_ipv6: f.ip_pref === "ipv6", tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), quota_bytes: gbToBytes(f.quota_gb), quota_reset_day: parseResetDay(f.quota_reset_day) };
+  return { ...f, ipv4_only: f.ip_pref === "ipv4_only", prefer_ipv6: f.ip_pref === "ipv6", tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), quota_bytes: gbToBytes(f.quota_gb), quota_reset_day: parseResetDay(f.quota_reset_day), price: Number(f.price) > 0 ? Number(f.price) : 0, auto_renew: f.auto_renew && !!f.expires_at && !!f.cycle && f.cycle !== "once" };
 }
 
 export function ServerDialog({ open, onClose, server }: { open: boolean; onClose: () => void; server?: Server }) {
@@ -93,7 +102,25 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
           </Select>
         </Field>
         <Field label="标签" hint="逗号分隔"><Input value={f.tags} onChange={(e) => set("tags", e.target.value)} /></Field>
+        <Field label="价格" hint="只是记个账，显示在卡片上">
+          <div className="flex gap-2">
+            <Select aria-label="货币" className="w-20 shrink-0" value={f.currency} onChange={(e) => set("currency", e.target.value)}>
+              {["$", "¥", "€", "£", "HK$"].map((c) => <option key={c} value={c}>{c}</option>)}
+            </Select>
+            <Input type="number" min={0} step="0.01" value={f.price} onChange={(e) => set("price", e.target.value)} placeholder="不填" />
+          </div>
+        </Field>
+        <Field label="付费周期">
+          <Select value={f.cycle} onChange={(e) => set("cycle", e.target.value as ServerForm["cycle"])}>
+            <option value="">不填</option>
+            {Object.entries(CYCLE_LABELS).map(([k, label]) => <option key={k} value={k}>{k === "once" ? label : `每${label}`}</option>)}
+          </Select>
+        </Field>
+        <Field label="到期日" hint="到期前几天 Telegram 会提醒一次；留空则不提醒" className="sm:col-span-2">
+          <DateTimeInput withTime={false} value={f.expires_at ? `${f.expires_at}T00:00` : ""} onChange={(v) => set("expires_at", v.slice(0, 10))} placeholder="不填" />
+        </Field>
         <div className="flex flex-col gap-3 sm:col-span-2">
+          <Switch checked={f.auto_renew} disabled={!f.expires_at || !f.cycle || f.cycle === "once"} onChange={(v) => set("auto_renew", v)} label="服务商会自动续费：到期日一过，面板自己把它顺延一个周期（要先填到期日和周期）" />
           <Switch checked={f.quota_stop} onChange={(v) => set("quota_stop", v)} label="配额用完就停掉这台机器上的入站，下次重置自动恢复（超量要另外付费的机器打开；不开则只提醒）" />
           <Switch checked={f.ingress_ack} onChange={(v) => set("ingress_ack", v)} label="这台机器上另有防火墙，节点端口由我自己放行（不再提示）" />
           <Switch checked={f.strict_source} onChange={(v) => set("strict_source", v)} label="作为落地机时，只接受入口机 IP 发来的中转（机器经过地址转换、看不到真实来源时不要开）" />
@@ -106,8 +133,17 @@ export function ServerDialog({ open, onClose, server }: { open: boolean; onClose
   );
 }
 
-function AgentStatusBadge({ s }: { s: Server["agent_status"] }) {
-  return <Badge variant={s === "online" ? "success" : s === "offline" ? "destructive" : "secondary"}>{STATUS_LABELS[s]}</Badge>;
+/** Online by its live worker, or else by its heartbeat. */
+function AgentStatusBadge({ s }: { s: Server }) {
+  const live = useVitals(s)?.live;
+  const status = live ? "online" : s.agent_status;
+  return <Badge variant={status === "online" ? "success" : status === "offline" ? "destructive" : "secondary"}>{live ? "实时" : STATUS_LABELS[status]}</Badge>;
+}
+
+/** When the server last said anything: just now over the live channel, or its last heartbeat. */
+function LastSeen({ s }: { s: Server }) {
+  const live = useLive(s.id);
+  return <>{live?.connected ? "实时上报中" : fmtAgo(s.agent?.last_seen_at)}</>;
 }
 
 // The order here is the order everywhere servers are listed: the overview, this page, the daily report.
@@ -151,6 +187,7 @@ export function ServersPage() {
   const qc = useQueryClient();
   const [create, setCreate] = React.useState(false);
   const [ordering, setOrdering] = React.useState(false);
+  const [probing, setProbing] = React.useState(false);
   const checkAgentUpdates = useMutation({
     mutationFn: () => post<{ message: string }>("/api/v1/agents/update"),
     onSuccess: (r) => { toast.success(r.message); qc.invalidateQueries({ queryKey: ["servers"] }); },
@@ -159,13 +196,14 @@ export function ServersPage() {
   const stale = (q.data ?? []).filter((s) => s.agent_update?.outdated).length;
   return (
     <div>
-      <PageHeader title="服务器" description="状态、负载和流量；在线情况变化会通过 Telegram 通知" actions={
+      <PageHeader title="服务器" description={["每秒更新的状态、流量，和到各运营商的延迟", monthlyCost(q.data ?? [])].filter(Boolean).join(" · ")} actions={
         <>
           {stale > 0 && (
             <Button variant="outline" onClick={() => checkAgentUpdates.mutate()} loading={checkAgentUpdates.isPending} title="检查与控制端提供的 agent 版本是否一致；有差异时会随心跳自动更新">
               <RefreshCw className="h-4 w-4" /> 检查 agent 更新（{stale} 台待同步）
             </Button>
           )}
+          {!!q.data?.length && <Button variant="outline" onClick={() => setProbing(true)}><Activity className="h-4 w-4" /> 延迟监测</Button>}
           {(q.data?.length ?? 0) > 1 && <Button variant="outline" onClick={() => setOrdering(true)}><ArrowUpDown className="h-4 w-4" /> 调整顺序</Button>}
           <Button onClick={() => setCreate(true)}><Plus className="h-4 w-4" /> 添加服务器</Button>
         </>
@@ -175,12 +213,24 @@ export function ServersPage() {
       ) : !q.data?.length ? (
         <Empty title="还没有服务器" description="添加一台机器，然后用生成的命令安装 agent。" action={<Button onClick={() => setCreate(true)}>添加服务器</Button>} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{q.data.map((s) => <ServerCard key={s.id} s={s} />)}</div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{q.data.map((s) => <ProbeCard key={s.id} s={s} />)}</div>
       )}
       <ServerDialog open={create} onClose={() => setCreate(false)} />
       <OrderDialog open={ordering} onClose={() => setOrdering(false)} servers={q.data ?? []} />
+      <ProbeTargetsDialog open={probing} onClose={() => setProbing(false)} />
     </div>
   );
+}
+
+/** What the servers that renew cost a month, per currency: "合计约 $31.20/月". */
+function monthlyCost(servers: Server[]): string {
+  const months: Record<string, number> = { month: 1, quarter: 3, half: 6, year: 12, "2year": 24, "3year": 36 };
+  const sums = new Map<string, number>();
+  for (const s of servers) {
+    if (s.price > 0 && months[s.cycle]) sums.set(s.currency, (sums.get(s.currency) ?? 0) + s.price / months[s.cycle]);
+  }
+  if (!sums.size) return "";
+  return "合计约 " + [...sums].map(([currency, sum]) => `${currency}${sum.toFixed(2)}`).join(" + ") + "/月";
 }
 
 // ---------- detail ----------
@@ -213,7 +263,6 @@ export function ServerDetailPage() {
       : `/api/v1/servers/${id}/traffic?days=${trafficDays}`),
     refetchInterval: 30000,
   });
-  const samples = useQuery({ queryKey: ["servers", id, "samples"], queryFn: () => get<{ ts: string; rx_rate: number; tx_rate: number }[]>(`/api/v1/servers/${id}/samples?hours=24`), refetchInterval: 60000 });
   const desired = useQuery({ queryKey: ["servers", id, "desired"], queryFn: () => get<Revision[]>(`/api/v1/servers/${id}/desired?limit=5`) });
   const [edit, setEdit] = React.useState(false);
   const [calibrate, setCalibrate] = React.useState(false);
@@ -221,9 +270,9 @@ export function ServerDetailPage() {
   const [confirmDel, setConfirmDel] = React.useState(false);
   const [confirmReset, setConfirmReset] = React.useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  type ServerTab = "nodes" | "diag" | "revisions";
+  type ServerTab = "nodes" | "monitor" | "diag" | "revisions";
   const selectedTab = searchParams.get("tab");
-  const tab: ServerTab = ["nodes", "diag", "revisions"].includes(selectedTab ?? "") ? selectedTab as ServerTab : "nodes";
+  const tab: ServerTab = ["nodes", "monitor", "diag", "revisions"].includes(selectedTab ?? "") ? selectedTab as ServerTab : "nodes";
   const setTab = (value: ServerTab) => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set("tab", value); return next; }, { replace: true });
   const [maintenanceOpen, setMaintenanceOpen] = React.useState(false);
   const [maintenanceBusy, setMaintenanceBusy] = React.useState(false);
@@ -260,7 +309,7 @@ export function ServerDetailPage() {
         description={`${s.public_host || s.agent?.public_ipv4 || "—"} ${s.region ? `· ${s.region}` : ""} ${m?.hostname ? `· ${m.hostname}` : ""}`}
         actions={
           <>
-            <AgentStatusBadge s={s.agent_status} />
+            <AgentStatusBadge s={s} />
             {s.agent_status === "pending" && <Button size="sm" onClick={() => enrollM.mutate()} loading={enrollM.isPending}><KeyRound className="h-4 w-4" /> 生成安装命令</Button>}
             <Button size="sm" variant="outline" onClick={() => setEdit(true)}><Pencil className="h-4 w-4" /> 编辑</Button>
             <ServerActions items={[
@@ -289,18 +338,19 @@ export function ServerDetailPage() {
         </div>
       )}
 
+      <div className="-mt-2 mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <HostChips s={s} />
+        <Renewal s={s} />
+        {(s.host?.cpu_model || m?.kernel) && <span className="text-xs text-muted-foreground">{[s.host?.cpu_model, m?.kernel && `内核 ${m.kernel}`].filter(Boolean).join(" · ")}</span>}
+      </div>
+
       <div className="mt-6">
-        <Tabs value={tab} onChange={setTab} items={[{ value: "nodes", label: "概览" }, { value: "diag", label: "诊断" }, { value: "revisions", label: "配置版本" }]} />
+        <Tabs value={tab} onChange={setTab} items={[{ value: "nodes", label: "概览" }, { value: "monitor", label: "监控" }, { value: "diag", label: "诊断" }, { value: "revisions", label: "配置版本" }]} />
       </div>
 
       {tab === "nodes" && <>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Card className="p-4"><p className="flex items-center gap-1 text-xs text-muted-foreground"><ArrowUp className="h-3 w-3" />实时上行</p><p className="mt-1 text-2xl font-semibold tabular-nums">{m ? fmtRate(m.net_tx_rate) : "-"}</p></Card>
-        <Card className="p-4"><p className="flex items-center gap-1 text-xs text-muted-foreground"><ArrowDown className="h-3 w-3" />实时下行</p><p className="mt-1 text-2xl font-semibold tabular-nums">{m ? fmtRate(m.net_rx_rate) : "-"}</p></Card>
-        <Card className="p-4"><p className="text-xs text-muted-foreground">CPU / 负载</p><p className="mt-1 text-xl font-semibold">{m ? `${m.cpu_percent.toFixed(0)}%` : "-"}</p><p className="text-xs text-muted-foreground">load {m?.load1?.toFixed(2) ?? "-"} / {m?.load5?.toFixed(2) ?? "-"}</p></Card>
-        <Card className="p-4"><p className="text-xs text-muted-foreground">内存</p><p className="mt-1 text-xl font-semibold">{m?.mem_total ? `${((m.mem_used / m.mem_total) * 100).toFixed(0)}%` : "-"}</p><p className="text-xs text-muted-foreground">{fmtBytes(m?.mem_used)} / {fmtBytes(m?.mem_total)}</p></Card>
-        <Card className="col-span-2 p-4 lg:col-span-1"><p className="text-xs text-muted-foreground">磁盘</p><p className="mt-1 text-xl font-semibold">{m?.disk_total ? `${((m.disk_used / m.disk_total) * 100).toFixed(0)}%` : "-"}</p><p className="text-xs text-muted-foreground">{fmtBytes(m?.disk_used)} / {fmtBytes(m?.disk_total)}</p></Card>
-      </div>
+      <div className="mt-4"><LiveTiles s={s} /></div>
+      <div className="mt-4"><LatencyNow id={s.id} /></div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -350,7 +400,7 @@ export function ServerDetailPage() {
             )}
             <dl className="mt-4 space-y-1.5 text-xs text-muted-foreground">
               <div className="flex justify-between"><dt>agent 版本</dt><dd>{s.agent?.version || "-"}</dd></div>
-              <div className="flex justify-between"><dt>最后心跳</dt><dd>{fmtAgo(s.agent?.last_seen_at)}</dd></div>
+              <div className="flex justify-between"><dt>最后上报</dt><dd><LastSeen s={s} /></dd></div>
               <div className="flex justify-between"><dt>运行时间</dt><dd>{m ? fmtDuration(m.uptime_sec) : "-"}</dd></div>
               <div className="flex justify-between"><dt>配置版本</dt><dd>{s.desired ? `rev ${s.desired.revision} ${s.desired.in_sync ? "✓" : "…"}` : "-"}</dd></div>
               <div className="flex justify-between"><dt>内核</dt><dd>{m?.kernel || "-"} {m?.arch}</dd></div>
@@ -359,13 +409,9 @@ export function ServerDetailPage() {
         </Card>
       </div>
 
-      {samples.data && samples.data.length > 1 && (
-        <Card className="mt-4">
-          <CardHeader><CardTitle>近 24 小时速率</CardTitle></CardHeader>
-          <CardContent><RateArea points={samples.data} /></CardContent>
-        </Card>
-      )}
       </>}
+
+      {tab === "monitor" && <ServerMonitor id={s.id} />}
 
       {tab === "nodes" && <ServerProxyUsage nodes={nodes.data ?? []} />}
 

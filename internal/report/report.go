@@ -33,6 +33,11 @@ type Reporter struct {
 	mu       sync.Mutex
 	open     map[string]domain.Incident // what has not cleared, by key
 	restarts map[string]int             // automatic restarts already told, by core
+
+	// usual is how long each entry server's probes usually take, read from
+	// the store now and then; only the quality job touches it.
+	usual   map[store.ProbeKey]int64
+	usualAt time.Time
 }
 
 // New builds a Reporter that knows what was open when the panel last ran.

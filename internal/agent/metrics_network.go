@@ -3,16 +3,14 @@ package agent
 import (
 	"errors"
 	"math"
-	"strings"
 
 	"ctlvps/internal/agentproto"
+	"ctlvps/internal/hostmetrics"
 )
 
 // Keep the legacy filter unchanged during explicit migration. The new policy
 // uses stable interface identities instead of these historical name filters.
-func legacyNetworkIncluded(name, iface string) bool {
-	return name != "lo" && !strings.HasPrefix(name, "docker") && !strings.HasPrefix(name, "veth") && !strings.HasPrefix(name, "br-") && !strings.HasPrefix(name, "tun") && !strings.HasPrefix(name, "wg") && (iface == "" || name == iface)
-}
+func legacyNetworkIncluded(name, iface string) bool { return hostmetrics.Counted(name, iface) }
 
 // Derive both sides of the cutover from one netlink counter snapshot. Reading
 // /proc/net/dev and netlink separately would leave a gap between the old tail

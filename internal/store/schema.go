@@ -756,4 +756,58 @@ UPDATE servers SET sort_order = (
  WHERE (NOT EXISTS(SELECT 1 FROM nodes n WHERE n.server_id=o.id), o.name)
     <= (NOT EXISTS(SELECT 1 FROM nodes n WHERE n.server_id=servers.id), servers.name)
 );`,
+	// v38: the probe. What a server costs and when it expires; what its
+	// agent's live worker says the host is; the addresses servers time
+	// connections to; and what the live channel measured, by the minute for
+	// two days and by the hour for three months. Times are unix seconds.
+	`ALTER TABLE servers ADD COLUMN price REAL NOT NULL DEFAULT 0;
+ALTER TABLE servers ADD COLUMN currency TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN cycle TEXT NOT NULL DEFAULT '' CHECK(cycle IN ('','month','quarter','half','year','2year','3year','once'));
+ALTER TABLE servers ADD COLUMN expires_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0 CHECK(auto_renew IN (0,1));
+ALTER TABLE agents ADD COLUMN host TEXT NOT NULL DEFAULT '{}';
+CREATE TABLE probe_targets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  carrier TEXT NOT NULL DEFAULT '' CHECK(carrier IN ('','ct','cu','cm')),
+  on_card INTEGER NOT NULL DEFAULT 1 CHECK(on_card IN (0,1)),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  UNIQUE(host, port)
+);
+CREATE TABLE server_metrics (
+  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  res INTEGER NOT NULL CHECK(res IN (60,3600)),
+  ts INTEGER NOT NULL,
+  n INTEGER NOT NULL,
+  cpu REAL NOT NULL,
+  cpu_max REAL NOT NULL,
+  mem_used INTEGER NOT NULL,
+  mem_total INTEGER NOT NULL,
+  swap_used INTEGER NOT NULL,
+  disk_used INTEGER NOT NULL,
+  disk_total INTEGER NOT NULL,
+  load1 REAL NOT NULL,
+  rx_rate INTEGER NOT NULL,
+  tx_rate INTEGER NOT NULL,
+  rx_max INTEGER NOT NULL,
+  tx_max INTEGER NOT NULL,
+  tcp INTEGER NOT NULL,
+  udp INTEGER NOT NULL,
+  PRIMARY KEY (server_id, res, ts)
+) WITHOUT ROWID;
+CREATE TABLE probe_stats (
+  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  target_id INTEGER NOT NULL REFERENCES probe_targets(id) ON DELETE CASCADE,
+  res INTEGER NOT NULL CHECK(res IN (60,3600)),
+  ts INTEGER NOT NULL,
+  sent INTEGER NOT NULL,
+  lost INTEGER NOT NULL,
+  rtt_sum INTEGER NOT NULL,
+  rtt_min INTEGER NOT NULL,
+  rtt_max INTEGER NOT NULL,
+  PRIMARY KEY (server_id, target_id, res, ts)
+) WITHOUT ROWID;`,
 }

@@ -26,6 +26,7 @@ import (
 	"ctlvps/internal/desired"
 	"ctlvps/internal/domain"
 	"ctlvps/internal/geoip"
+	"ctlvps/internal/live"
 	"ctlvps/internal/maintenance"
 	"ctlvps/internal/notify"
 	"ctlvps/internal/report"
@@ -179,14 +180,21 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		}
 	}()
 
+	hub, err := live.New(ctx, st, logger, nil)
+	if err != nil {
+		return fmt.Errorf("load live state: %w", err)
+	}
 	secure := strings.HasPrefix(cfg.SiteURL, "https://")
 	a := api.New(api.Deps{
-		Store: st, Connlog: cl, Geo: geo, Subs: subs, Desired: des, Shares: shares, Traffic: ing, Notify: tg, Report: rep, Scheduler: sched, Logger: logger,
+		Store: st, Connlog: cl, Geo: geo, Subs: subs, Desired: des, Shares: shares, Traffic: ing, Notify: tg, Report: rep, Live: hub, Scheduler: sched, Logger: logger,
 		Static: web.Handler(cfg.DevProxy),
 		Config: api.Config{SiteURL: cfg.SiteURL, TrustProxy: false, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, SecureCookies: secure, SessionTTL: cfg.SessionTTL, Version: buildinfo.String(), StartedAt: time.Now(), DataDir: cfg.DataDir, AgentBinDir: cfg.AgentBinDir, SetupToken: setupToken},
 	})
 
-	registerJobs(sched, st, cl, subs, shares, des, rep, cfg, logger)
+	hub.Publish = a.Events.Publish
+	go hub.Run(ctx)
+
+	registerJobs(sched, st, cl, subs, shares, des, rep, hub, cfg, logger)
 	go sched.Run(ctx)
 
 	srv := &http.Server{
@@ -210,7 +218,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	return nil
 }
 
-func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, subs *subscription.Service, shares *share.Manager, des *desired.Builder, rep *report.Reporter, cfg config.Config, logger *slog.Logger) {
+func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, subs *subscription.Service, shares *share.Manager, des *desired.Builder, rep *report.Reporter, hub *live.Hub, cfg config.Config, logger *slog.Logger) {
 	s.Add(scheduler.Job{Name: "external_sync", Interval: time.Minute, RunAtStart: true, Fn: func(ctx context.Context) error {
 		for id, err := range subs.SyncDue(ctx, false) {
 			if err != nil {
@@ -236,6 +244,7 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 		errs = append(errs, st.PurgeExpiredSessions(ctx))
 		errs = append(errs, st.PruneDesiredStates(ctx, 20))
 		errs = append(errs, st.PruneIncidents(ctx, 90*24*time.Hour))
+		errs = append(errs, st.PruneLive(ctx, 48*time.Hour, 90*24*time.Hour))
 		if cl != nil {
 			raw := st.GetSettingInt(ctx, domain.SettingConnlogRetention, 7)
 			agg := st.GetSettingInt(ctx, domain.SettingAggRetention, 90)
@@ -269,5 +278,9 @@ func registerJobs(s *scheduler.Scheduler, st *store.Store, cl *connlog.Store, su
 		return nil
 	}})
 	s.Add(scheduler.Job{Name: "agent_watch", Interval: time.Minute, Fn: rep.WatchAgents})
+	s.Add(scheduler.Job{Name: "line_quality", Interval: time.Minute, Fn: func(ctx context.Context) error {
+		return rep.Quality(ctx, hub.Window(report.QualityWindow))
+	}})
+	s.Add(scheduler.Job{Name: "server_renewals", Interval: time.Hour, RunAtStart: true, Fn: rep.Renewals})
 	s.Add(scheduler.Job{Name: "daily_report", Interval: 10 * time.Minute, Fn: rep.DailyDue})
 }

@@ -7,16 +7,18 @@ import (
 	"ctlvps/internal/domain"
 )
 
-const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, quota_stop, quota_stopped, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, udp_over_tcp, cert_mode, enabled, sort_order, created_at, updated_at`
+const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, quota_stop, quota_stopped, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, udp_over_tcp, cert_mode, enabled, sort_order, price, currency, cycle, expires_at, auto_renew, created_at, updated_at`
 
 func scanServer(sc interface{ Scan(...any) error }) (domain.Server, error) {
 	var v domain.Server
 	var tags, created, updated string
-	var quotaStop, quotaStopped, ipv4Only, preferIPv6, ingressAck, strictSource, udpOverTCP, enabled int
+	var quotaStop, quotaStopped, ipv4Only, preferIPv6, ingressAck, strictSource, udpOverTCP, enabled, autoRenew int
 	if err := sc.Scan(&v.ID, &v.Name, &v.Region, &v.PublicHost, &tags, &v.Notes, &v.QuotaBytes, &v.QuotaResetDay, &v.QuotaBilling, &quotaStop, &quotaStopped,
-		&v.CoreMode, &ipv4Only, &preferIPv6, &ingressAck, &strictSource, &udpOverTCP, &v.CertMode, &enabled, &v.SortOrder, &created, &updated); err != nil {
+		&v.CoreMode, &ipv4Only, &preferIPv6, &ingressAck, &strictSource, &udpOverTCP, &v.CertMode, &enabled, &v.SortOrder,
+		&v.Price, &v.Currency, &v.Cycle, &v.ExpiresAt, &autoRenew, &created, &updated); err != nil {
 		return v, err
 	}
+	v.AutoRenew = autoRenew == 1
 	v.Tags = jsonList[string](tags)
 	v.QuotaStop, v.QuotaStopped = quotaStop == 1, quotaStopped == 1
 	v.IPv4Only = ipv4Only == 1
@@ -49,9 +51,10 @@ func (s *Store) CreateServer(ctx context.Context, v *domain.Server) error {
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order),0)+1 FROM servers`).Scan(&v.SortOrder); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,quota_stop,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,udp_over_tcp,cert_mode,enabled,sort_order,created_at,updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), v.SortOrder, fmtTime(now), fmtTime(now))
+		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,quota_stop,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,udp_over_tcp,cert_mode,enabled,sort_order,price,currency,cycle,expires_at,auto_renew,created_at,updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), v.SortOrder,
+			v.Price, v.Currency, v.Cycle, v.ExpiresAt, b2i(v.AutoRenew), fmtTime(now), fmtTime(now))
 		if err != nil {
 			return err
 		}
@@ -70,8 +73,9 @@ func (s *Store) UpdateServer(ctx context.Context, v *domain.Server) error {
 	if v.Tags == nil {
 		v.Tags = []string{}
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE servers SET name=?, region=?, public_host=?, tags=?, notes=?, quota_bytes=?, quota_reset_day=?, quota_billing=?, quota_stop=?, core_mode=?, ipv4_only=?, prefer_ipv6=?, ingress_ack=?, strict_source=?, udp_over_tcp=?, cert_mode=?, enabled=?, updated_at=? WHERE id=?`,
-		v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), v.ID)
+	_, err := s.db.ExecContext(ctx, `UPDATE servers SET name=?, region=?, public_host=?, tags=?, notes=?, quota_bytes=?, quota_reset_day=?, quota_billing=?, quota_stop=?, core_mode=?, ipv4_only=?, prefer_ipv6=?, ingress_ack=?, strict_source=?, udp_over_tcp=?, cert_mode=?, enabled=?, price=?, currency=?, cycle=?, expires_at=?, auto_renew=?, updated_at=? WHERE id=?`,
+		v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled),
+		v.Price, v.Currency, v.Cycle, v.ExpiresAt, b2i(v.AutoRenew), fmtTime(now), v.ID)
 	v.UpdatedAt = now
 	return err
 }
@@ -80,6 +84,13 @@ func (s *Store) UpdateServer(ctx context.Context, v *domain.Server) error {
 // because its quota is used up, or that it carries traffic again.
 func (s *Store) SetServerQuotaStopped(ctx context.Context, id int64, stopped bool) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE servers SET quota_stopped=? WHERE id=?`, b2i(stopped), id)
+	return err
+}
+
+// SetServerExpiry moves the day a server is paid until, as an automatic
+// renewal does.
+func (s *Store) SetServerExpiry(ctx context.Context, id int64, day string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE servers SET expires_at=? WHERE id=?`, day, id)
 	return err
 }
 

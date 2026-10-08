@@ -20,6 +20,8 @@ import (
 	"ctlvps/internal/domain"
 	"ctlvps/internal/geoip"
 	"ctlvps/internal/httpx"
+	"ctlvps/internal/live"
+	"ctlvps/internal/liveproto"
 	"ctlvps/internal/notify"
 	"ctlvps/internal/report"
 	"ctlvps/internal/safehttp"
@@ -56,6 +58,7 @@ type Deps struct {
 	Traffic     *traffic.Ingestor
 	Notify      *notify.Telegram
 	Report      *report.Reporter
+	Live        *live.Hub
 	Scheduler   *scheduler.Scheduler
 	Logger      *slog.Logger
 	Static      http.Handler
@@ -319,6 +322,9 @@ func (a *API) routes() {
 	a.handle("POST /api/v1/users/{id}/2fa/reset", adminAccess, a.twoFAReset)
 
 	// servers
+	a.handle("GET /api/v1/live", adminAccess, a.liveSnapshot)
+	a.handle("GET /api/v1/probe-targets", adminAccess, a.getProbeTargets)
+	a.handle("PUT /api/v1/probe-targets", adminAccess, a.putProbeTargets)
 	a.handle("GET /api/v1/servers", adminAccess, a.listServers)
 	a.handle("POST /api/v1/servers", adminAccess, a.createServer)
 	a.handle("POST /api/v1/servers/reorder", adminAccess, a.reorderServers)
@@ -362,7 +368,8 @@ func (a *API) routes() {
 	a.handle("GET /api/v1/servers/{id}/interfaces", adminAccess, a.interfaceHistory)
 	a.handle("PUT /api/v1/servers/{id}/interfaces/{iid}/archive", adminAccess, a.archiveInterface)
 	a.handle("GET /api/v1/servers/{id}/interfaces/{iid}/traffic", adminAccess, a.interfaceTraffic)
-	a.handle("GET /api/v1/servers/{id}/samples", adminAccess, a.serverSamples)
+	a.handle("GET /api/v1/servers/{id}/history", adminAccess, a.serverHistory)
+	a.handle("GET /api/v1/servers/{id}/latency", adminAccess, a.serverLatency)
 	a.handle("GET /api/v1/servers/{id}/desired", adminAccess, a.serverDesired)
 	a.handle("POST /api/v1/servers/{id}/republish", adminAccess, a.serverRepublish)
 	a.handle("POST /api/v1/servers/{id}/update-agent", adminAccess, a.updateAgent)
@@ -490,6 +497,7 @@ func (a *API) routes() {
 	a.agentRoute("GET /api/agent/v1/desired", a.agentDesired)
 	a.agentRoute("POST /api/agent/v1/apply-report", a.agentApplyReport)
 	a.agentRoute("POST /api/agent/v1/connlog", a.agentConnlog)
+	a.agentRoute("GET "+liveproto.Path, a.agentLive)
 
 	// public subscription endpoints
 	a.public("GET /s/{token}", a.publicSubscription)

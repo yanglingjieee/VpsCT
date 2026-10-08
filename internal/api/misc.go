@@ -196,7 +196,7 @@ var editableSettings = map[string]bool{
 	domain.SettingAccessRetention: true, domain.SettingAgentOfflineSec: true, domain.SettingQuotaAlertPct: true, domain.SettingQuotaTimezone: true,
 	domain.SettingSingBoxVersion: true, domain.SettingSnellVersion: true, domain.SettingMitaVersion: true, "core.mita_sha256": true, domain.SettingRateLimitPerMin: true,
 	"core.singbox_sha256": true, "core.snell_sha256": true, "site.default_template_id": true,
-	domain.SettingDefaultRuleset: true,
+	domain.SettingDefaultRuleset: true, domain.SettingRenewAlertDays: true, domain.SettingTelegramQuality: true,
 }
 
 // SettingDefaults are returned when unset.
@@ -206,6 +206,7 @@ var SettingDefaults = map[string]string{
 	domain.SettingConnlogRetention: "7", domain.SettingAggRetention: "90", domain.SettingConnlogSelf: "0", domain.SettingSampleRetention: "48", domain.SettingHourlyRetention: "14",
 	domain.SettingAccessRetention: "30", domain.SettingAgentOfflineSec: "120", domain.SettingQuotaAlertPct: "80",
 	domain.SettingRateLimitPerMin: "60", domain.SettingQuotaTimezone: "UTC",
+	domain.SettingRenewAlertDays: "7", domain.SettingTelegramQuality: "1",
 }
 
 func (a *API) coreVersions(w http.ResponseWriter, r *http.Request) error {
@@ -586,6 +587,10 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) error {
 	}
 	ch, cancel := a.Events.Subscribe()
 	defer cancel()
+	if isAdmin(u) {
+		defer a.Live.Watch()()
+	}
+	checked := time.Now()
 	ping := time.NewTicker(25 * time.Second)
 	defer ping.Stop()
 	for {
@@ -602,11 +607,15 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) error {
 				return nil
 			}
 		case ev := <-ch:
-			current, err := a.currentUser(r)
-			if err != nil {
-				return nil
+			// Live readings come every second; the session behind the stream
+			// is looked up again every ten rather than for each.
+			if ev.Type != "live" || time.Since(checked) > 10*time.Second {
+				current, err := a.currentUser(r)
+				if err != nil {
+					return nil
+				}
+				u, checked = current, time.Now()
 			}
-			u = current
 			if !isAdmin(u) {
 				if ev.Type != "share.changed" {
 					continue

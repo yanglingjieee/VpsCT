@@ -165,6 +165,9 @@ func Entry(args []string) (bool, error) {
 	if ok, e := DownloadEntry(args); ok {
 		return ok, e
 	}
+	if ok, e := liveEntry(args); ok {
+		return ok, e
+	}
 	if len(args) != 1 || args[0] != "network-request" {
 		return false, nil
 	}

@@ -1,3 +1,4 @@
+import type { LiveHost } from "@/lib/live";
 import type { NodeNetworkPolicy } from "./network";
 
 export type Role = "admin" | "user";
@@ -177,6 +178,8 @@ export interface ServerUsage {
   over_quota: boolean;
 }
 
+export type RenewalCycle = "" | "month" | "quarter" | "half" | "year" | "2year" | "3year" | "once";
+
 export interface Server {
   id: number;
   name: string;
@@ -201,6 +204,14 @@ export interface Server {
   enabled: boolean;
   /** Place in every list of servers; set by reordering. */
   sort_order: number;
+  /** What the host costs and the day it is paid until ("2026-11-29"); 0 and "" when not entered. */
+  price: number;
+  currency: string;
+  cycle: RenewalCycle;
+  expires_at: string;
+  auto_renew: boolean;
+  /** What the agent's live worker says the machine is. */
+  host?: LiveHost;
   created_at: string;
   agent?: Agent;
   agent_status: "pending" | "online" | "offline";

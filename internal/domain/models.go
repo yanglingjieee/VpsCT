@@ -116,11 +116,39 @@ type Server struct {
 	UDPOverTCP bool   `json:"udp_over_tcp"`
 	CertMode   string `json:"cert_mode"` // self_signed|acme|external
 	Enabled    bool   `json:"enabled"`
+	// What the host costs and when it runs out, as the operator entered them.
+	// Price 0 and an empty ExpiresAt mean not entered. ExpiresAt is a day,
+	// "2026-11-29", in the panel's time zone. With AutoRenew the day moves on
+	// by one Cycle when it passes; without, the operator is reminded.
+	Price     float64 `json:"price"`
+	Currency  string  `json:"currency"` // "$", "¥", ...
+	Cycle     string  `json:"cycle"`    // month|quarter|half|year|2year|3year|once, or empty
+	ExpiresAt string  `json:"expires_at"`
+	AutoRenew bool    `json:"auto_renew"`
 	// SortOrder is the server's place wherever servers are listed. The
 	// operator sets it by reordering; saving a server does not change it.
 	SortOrder int       `json:"sort_order"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// RenewalCycles are the lengths a server is paid for at a time, in months;
+// "once" is paid for once and does not renew.
+var RenewalCycles = map[string]int{"month": 1, "quarter": 3, "half": 6, "year": 12, "2year": 24, "3year": 36, "once": 0}
+
+// ProbeTarget is an address every server times TCP connections to, to tell
+// how far it is from a network and how much is lost on the way: usually one
+// carrier in one province.
+type ProbeTarget struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
+	Carrier string `json:"carrier"` // ct (电信) | cu (联通) | cm (移动) | empty
+	// OnCard shows the target on the server cards; the rest are on a
+	// server's own page only.
+	OnCard    bool `json:"on_card"`
+	SortOrder int  `json:"sort_order"`
 }
 
 // AgentStatus is derived from the last heartbeat.
@@ -651,7 +679,10 @@ const (
 	SettingAccessRetention  = "access_log.retention_days"
 	SettingAgentOfflineSec  = "agent.offline_after_seconds"
 	SettingQuotaAlertPct    = "quota.alert_percent"
-	SettingQuotaTimezone    = "quota.timezone" // IANA zone whose midnight starts a reset day
+	SettingQuotaTimezone    = "quota.timezone"          // IANA zone whose midnight starts a reset day
+	SettingProbeInterval    = "probe.interval_seconds"  // how often each probe target is tried
+	SettingRenewAlertDays   = "server.renew_alert_days" // days before a server's expiry to say so
+	SettingTelegramQuality  = "telegram.quality_alerts" // tell when an entry server's way to a probe target goes bad
 	SettingSingBoxVersion   = "core.singbox_version"
 	SettingSnellVersion     = "core.snell_version"
 	SettingMitaVersion      = "core.mita_version"

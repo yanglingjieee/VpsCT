@@ -187,3 +187,63 @@ export const STATUS_LABELS: Record<string, string> = {
   offline: "离线",
   pending: "待接入",
 };
+
+// ---------- the probe ----------
+
+/** A round trip in microseconds, as milliseconds: "178 ms". */
+export function fmtMs(us: number | null | undefined): string {
+  if (us == null || us <= 0) return "—";
+  const ms = us / 1000;
+  return `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+}
+
+/** A share of probes lost: "0%", "0.8%", "25%". */
+export function fmtLoss(pct: number | null | undefined): string {
+  if (pct == null) return "—";
+  if (pct === 0) return "0%";
+  return `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
+}
+
+/** How bad a share of lost probes is. Colour never says it alone: the figure is beside it. */
+export function lossTone(pct: number | null | undefined): "none" | "good" | "warn" | "serious" | "bad" {
+  if (pct == null) return "none";
+  if (pct < 1) return "good";
+  if (pct < 5) return "warn";
+  if (pct < 20) return "serious";
+  return "bad";
+}
+
+export const CARRIER_LABELS: Record<string, string> = { ct: "电信", cu: "联通", cm: "移动" };
+
+export const CYCLE_LABELS: Record<string, string> = { month: "月", quarter: "季", half: "半年", year: "年", "2year": "两年", "3year": "三年", once: "一次性" };
+
+/** What a server costs: "$49.99/年"; empty when not entered. */
+export function fmtPrice(s: { price: number; currency: string; cycle: string }): string {
+  if (!(s.price > 0)) return "";
+  const amount = `${s.currency}${Number.isInteger(s.price) ? s.price : s.price.toFixed(2)}`;
+  if (s.cycle === "once") return `${amount} 一次性`;
+  return CYCLE_LABELS[s.cycle] ? `${amount}/${CYCLE_LABELS[s.cycle]}` : amount;
+}
+
+/** Whole days from today to a day written "2026-11-29"; negative once it has passed, null when there is none. */
+export function daysUntil(day: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!m) return null;
+  const now = new Date();
+  return Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400e3);
+}
+
+/** A two-letter region as its flag; the letters themselves where the system has no flags. */
+export function flag(region: string): string {
+  if (!/^[A-Za-z]{2}$/.test(region)) return "";
+  return String.fromCodePoint(...[...region.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+const VIRT_LABELS: Record<string, string> = { kvm: "KVM", lxc: "LXC", "lxc-libvirt": "LXC", openvz: "OpenVZ", docker: "Docker", vmware: "VMware", "hyper-v": "Hyper-V", xen: "Xen", vm: "虚拟机", podman: "Podman", "systemd-nspawn": "nspawn" };
+export const fmtVirt = (v?: string) => (v ? VIRT_LABELS[v] ?? v : "");
+
+/** "Debian GNU/Linux 12 (bookworm)" → "Debian 12". */
+export function fmtOS(os?: string): string {
+  if (!os) return "";
+  return os.replace(" GNU/Linux", "").replace(/\s*\(.*\)$/, "").replace(/ LTS$/, "");
+}

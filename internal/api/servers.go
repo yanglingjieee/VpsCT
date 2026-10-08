@@ -13,6 +13,7 @@ import (
 	"ctlvps/internal/desired"
 	"ctlvps/internal/domain"
 	"ctlvps/internal/httpx"
+	"ctlvps/internal/liveproto"
 	"ctlvps/internal/provision"
 	"ctlvps/internal/store"
 	"ctlvps/internal/traffic"
@@ -29,6 +30,8 @@ type ServerView struct {
 	NodeCount   int                     `json:"node_count"`
 	Desired     *desiredSummary         `json:"desired,omitempty"`
 	AgentUpdate *AgentUpdateInfo        `json:"agent_update,omitempty"`
+	// Host is what the agent's live worker says the machine is.
+	Host *liveproto.Host `json:"host,omitempty"`
 }
 
 // AgentUpdateInfo is whether the panel can push a new ctlvps-agent to this VPS.
@@ -89,6 +92,7 @@ func (a *API) serverView(r *http.Request, s domain.Server, withDetail bool) Serv
 	if nodes, err := a.Store.ListNodes(ctx, store.NodeFilter{ServerID: &s.ID}); err == nil {
 		v.NodeCount = len(nodes)
 	}
+	v.Host = a.Live.Host(s.ID)
 	return v
 }
 
@@ -163,6 +167,11 @@ type serverInput struct {
 	UDPOverTCP    bool     `json:"udp_over_tcp"`
 	CertMode      string   `json:"cert_mode"`
 	Enabled       *bool    `json:"enabled"`
+	Price         float64  `json:"price"`
+	Currency      string   `json:"currency"`
+	Cycle         string   `json:"cycle"`
+	ExpiresAt     string   `json:"expires_at"`
+	AutoRenew     bool     `json:"auto_renew"`
 }
 
 func (in serverInput) apply(s *domain.Server) error {
@@ -212,6 +221,21 @@ func (in serverInput) apply(s *domain.Server) error {
 	if in.Enabled != nil {
 		s.Enabled = *in.Enabled
 	}
+	if in.Price < 0 || in.Price > 1e9 || len(in.Currency) > 8 {
+		return httpx.BadRequest("价格无效")
+	}
+	if _, ok := domain.RenewalCycles[in.Cycle]; !ok && in.Cycle != "" {
+		return httpx.BadRequest("付费周期无效")
+	}
+	if in.ExpiresAt != "" {
+		if _, err := time.Parse(time.DateOnly, in.ExpiresAt); err != nil {
+			return httpx.BadRequest("到期日要写成 2026-11-29 这样")
+		}
+	}
+	if in.AutoRenew && (in.ExpiresAt == "" || domain.RenewalCycles[in.Cycle] == 0) {
+		return httpx.BadRequest("自动续费要先填到期日，并选一个会重复的付费周期")
+	}
+	s.Price, s.Currency, s.Cycle, s.ExpiresAt, s.AutoRenew = in.Price, strings.TrimSpace(in.Currency), in.Cycle, in.ExpiresAt, in.AutoRenew
 	return nil
 }
 
@@ -361,6 +385,7 @@ func (a *API) deleteServer(w http.ResponseWriter, r *http.Request) error {
 	if err := a.Store.DeleteServer(r.Context(), id); err != nil {
 		return err
 	}
+	a.Live.Forget(id)
 	a.audit(r, "server.delete", s.Name, nil)
 	httpx.NoContent(w)
 	return nil
@@ -417,39 +442,6 @@ func (a *API) serverTraffic(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	httpx.OK(w, s)
-	return nil
-}
-
-func (a *API) serverSamples(w http.ResponseWriter, r *http.Request) error {
-	id, err := httpx.PathInt64(r, "id")
-	if err != nil {
-		return err
-	}
-	hours := httpx.QueryInt(r, "hours", 24)
-	samples, err := a.Store.ListSamples(r.Context(), id, nil, a.Store.Now().Add(-time.Duration(hours)*time.Hour))
-	if err != nil {
-		return err
-	}
-	// convert cumulative readings to rates (bytes/s)
-	type point struct {
-		TS     time.Time `json:"ts"`
-		RxRate float64   `json:"rx_rate"`
-		TxRate float64   `json:"tx_rate"`
-	}
-	out := []point{}
-	for i := 1; i < len(samples); i++ {
-		dt := samples[i].TS.Sub(samples[i-1].TS).Seconds()
-		if dt <= 0 {
-			continue
-		}
-		drx := samples[i].RxBytes - samples[i-1].RxBytes
-		dtx := samples[i].TxBytes - samples[i-1].TxBytes
-		if drx < 0 || dtx < 0 {
-			continue
-		}
-		out = append(out, point{TS: samples[i].TS, RxRate: float64(drx) / dt, TxRate: float64(dtx) / dt})
-	}
-	httpx.OK(w, out)
 	return nil
 }
 

@@ -6,6 +6,7 @@ import { ToastProvider } from "@/components/toast";
 import { Layout } from "@/components/layout";
 import { Spinner } from "@/components/ui";
 import { ApiError } from "@/lib/api";
+import { applyLive, dropLive, loadLive } from "@/lib/live";
 import { LoginPage } from "@/pages/login";
 import { DashboardPage } from "@/pages/dashboard";
 import { ServersPage, ServerDetailPage } from "@/pages/servers";
@@ -43,14 +44,18 @@ function LoginRoute() {
   return <LoginPage />;
 }
 
-// Live updates: subscribe to SSE and invalidate affected queries.
+// Live updates: subscribe to SSE and invalidate affected queries. An admin's
+// open stream is also what makes the servers send a reading every second, so
+// a tab nobody is looking at lets go of it.
 function EventStream() {
   const qc = useQueryClient();
   const { user } = useAuth();
   React.useEffect(() => {
     if (!user) return;
+    const admin = user.role === "admin";
     let es: EventSource | null = null;
     let timer: number | undefined;
+    let away: number | undefined;
     // coalesce bursts (many agents heartbeating) into one refetch per key every few seconds
     const pending = new Set<string>();
     let flush: number | undefined;
@@ -65,6 +70,10 @@ function EventStream() {
     };
     const connect = () => {
       es = new EventSource("/api/v1/events");
+      if (admin) {
+        es.addEventListener("hello", () => void loadLive().catch(() => undefined));
+        es.addEventListener("live", (e) => applyLive(JSON.parse((e as MessageEvent).data)));
+      }
       es.addEventListener("agent.heartbeat", () => inval([["servers"], ["dashboard"]]));
       es.addEventListener("agent.enrolled", () => inval([["servers"], ["dashboard"]]));
       es.addEventListener("agent.applied", () => inval([["servers"], ["nodes"]]));
@@ -72,13 +81,31 @@ function EventStream() {
       es.addEventListener("quota", () => inval([["servers"], ["shares"], ["dashboard"]]));
       es.onerror = () => {
         es?.close();
+        dropLive();
         timer = window.setTimeout(connect, 5000);
       };
     };
+    const close = () => {
+      es?.close();
+      es = null;
+      window.clearTimeout(timer);
+      dropLive();
+    };
+    const visibility = () => {
+      window.clearTimeout(away);
+      if (document.hidden) {
+        away = window.setTimeout(close, 30_000);
+      } else if (!es) {
+        connect();
+        qc.invalidateQueries();
+      }
+    };
+    document.addEventListener("visibilitychange", visibility);
     connect();
     return () => {
-      es?.close();
-      if (timer) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", visibility);
+      window.clearTimeout(away);
+      close();
       if (flush) window.clearTimeout(flush);
     };
   }, [qc, user]);

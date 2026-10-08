@@ -72,6 +72,24 @@ location / {
 }
 ```
 
+agent 的实时通道是一条 WebSocket。上面的 `Connection ""` 会把升级请求去掉，所以要在它前面为这一个路径单独放行（Caddy 和 Cloudflare 不需要任何设置）：
+
+```nginx
+location = /api/agent/v1/live {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+}
+```
+
+没有这一段时面板照常可用，只是各台机器停在 30 秒上报一次，卡片上显示“在线”而不是“实时”，也没有延迟数据。
+
 保存后检查 Nginx 配置并重载。`CTLVPS_SITE_URL` 必须是浏览器实际访问的公网 HTTPS 地址，不能填后端 `http://127.0.0.1:8080`。非默认公网端口需要包含在站点地址中；HTTPS 的省略端口与 `:443` 等价。
 
 如果代理必须改写 Host，可以通过 `X-Forwarded-Host` 传递原始域名，但控制端只接受 `CTLVPS_TRUSTED_PROXIES` 中实际相邻代理发送的单一值，且该值仍须匹配 `CTLVPS_SITE_URL`。代理必须像上例一样**覆盖**这个头，不能透传客户端提供的值或追加列表。来自非可信地址的该头会被忽略；可信代理提供空值、多值或错误域名时会被拒绝。未配置站点地址的本地开发不使用该头。

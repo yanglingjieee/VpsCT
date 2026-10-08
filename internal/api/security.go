@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ctlvps/internal/httpx"
+	"ctlvps/internal/liveproto"
 	"ctlvps/internal/safehttp"
 )
 
@@ -173,7 +174,7 @@ func (a *API) security(next http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, &requestBodyDeadline{ReadCloser: r.Body, controller: rc, deadline: time.Now().Add(20 * time.Second)}, max)
 			defer rc.SetReadDeadline(time.Time{})
 			defer rc.SetWriteDeadline(time.Time{})
-			if r.URL.Path != "/api/v1/events" {
+			if r.URL.Path != "/api/v1/events" && r.URL.Path != liveproto.Path {
 				_ = rc.SetWriteDeadline(time.Now().Add(60 * time.Second))
 			}
 		}
@@ -195,7 +196,11 @@ func (a *API) security(next http.Handler) http.Handler {
 		var gate *safehttp.Gate
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/agent/"):
-			gate = &a.agentGate
+			// A live channel stays open; it must not hold one of the places
+			// the agents' requests queue for.
+			if r.URL.Path != liveproto.Path {
+				gate = &a.agentGate
+			}
 			if !a.agentLimiter.Allow(httpx.ClientIP(r, false)) {
 				httpx.WriteError(w, httpx.E(429, "rate_limited", "设备请求过于频繁"))
 				return
