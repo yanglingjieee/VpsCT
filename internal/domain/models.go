@@ -113,11 +113,14 @@ type Server struct {
 	// UDPOverTCP: as a Shadowsocks landing, take relayed UDP inside the
 	// relay's TCP connection. Off by default, so UDP stays UDP end to end;
 	// on for a host whose forwarded UDP port drops the start of new flows.
-	UDPOverTCP bool      `json:"udp_over_tcp"`
-	CertMode   string    `json:"cert_mode"` // self_signed|acme|external
-	Enabled    bool      `json:"enabled"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	UDPOverTCP bool   `json:"udp_over_tcp"`
+	CertMode   string `json:"cert_mode"` // self_signed|acme|external
+	Enabled    bool   `json:"enabled"`
+	// SortOrder is the server's place wherever servers are listed. The
+	// operator sets it by reordering; saving a server does not change it.
+	SortOrder int       `json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // AgentStatus is derived from the last heartbeat.

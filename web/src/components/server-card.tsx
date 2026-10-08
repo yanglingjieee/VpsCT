@@ -29,11 +29,6 @@ function Load({ label, percent }: { label: string; percent: number | null }) {
 
 const ratio = (used?: number, total?: number) => (total ? ((used ?? 0) / total) * 100 : null);
 
-/** Servers that carry lines come first, the ones only watched after them; by name within each. */
-export function sortServers(list: Server[]): Server[] {
-  return [...list].sort((a, b) => Number(b.node_count > 0) - Number(a.node_count > 0));
-}
-
 /** One server as a probe tile. Live rates and the period's traffic lead; load is secondary. */
 export function ServerCard({ s }: { s: Server }) {
   const online = s.agent_status === "online";

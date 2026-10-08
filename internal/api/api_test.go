@@ -252,6 +252,14 @@ func TestEndToEnd(t *testing.T) {
 	if strings.Contains(string(body), "proxies:") || strings.Contains(string(body), "mixed-port:") {
 		t.Fatalf("surge detection failed: %s", body[:min(len(body), 200)])
 	}
+	// Shadowrocket prints the usage header as it is, so it gets sizes, not byte counts.
+	req, _ = http.NewRequest("GET", c.srv.URL+"/s/"+token, nil)
+	req.Header.Set("User-Agent", "Shadowrocket/3445 CFNetwork/3896.100.1 Darwin/27.0.0")
+	resp, _ = http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if ui := resp.Header.Get("Subscription-Userinfo"); !strings.HasPrefix(ui, "upload=") || !strings.Contains(ui, "total=1000B") {
+		t.Fatalf("shadowrocket userinfo: %q", ui)
+	}
 	// revoke -> 410
 	c.do("POST", fmt.Sprintf("/api/v1/shares/%d/revoke", shID), nil, 200)
 	resp, _ = http.Get(c.srv.URL + "/s/" + token)

@@ -4,7 +4,7 @@ import { MaintenancePanel } from "@/components/maintenance";
 import { ServerActions } from "@/components/server-actions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, Copy, Gauge, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Gauge, KeyRound, Plus, RefreshCw, Trash2, Pencil, ShieldCheck, Wrench } from "lucide-react";
 import { del, get, post, put } from "@/lib/api";
 import type { Server, Node, Series } from "@/lib/types";
 import { fmtBytes, fmtAgo, fmtDuration, fmtRate, gbToBytes, bytesToGb, parseResetDay, copyText, STATUS_LABELS, PROTOCOL_LABELS, BILLING_LABELS, fmtDate, fmtPeriodDay, fmtResetIn } from "@/lib/utils";
@@ -13,7 +13,7 @@ import { useToast } from "@/components/toast";
 import { ResetDayInput } from "@/components/datetime-picker";
 import { TrafficBars, RateArea } from "@/components/charts";
 import { TrafficIO } from "@/components/traffic-ways";
-import { ServerCard, sortServers } from "@/components/server-card";
+import { ServerCard } from "@/components/server-card";
 
 // ---------- shared form ----------
 interface ServerForm {
@@ -110,12 +110,47 @@ function AgentStatusBadge({ s }: { s: Server["agent_status"] }) {
   return <Badge variant={s === "online" ? "success" : s === "offline" ? "destructive" : "secondary"}>{STATUS_LABELS[s]}</Badge>;
 }
 
+// The order here is the order everywhere servers are listed: the overview, this page, the daily report.
+function OrderDialog({ open, onClose, servers }: { open: boolean; onClose: () => void; servers: Server[] }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const reorder = useMutation({
+    mutationFn: (ids: number[]) => post<Server[]>("/api/v1/servers/reorder", { ids }),
+    onSuccess: (list) => { qc.setQueryData(["servers"], list); qc.invalidateQueries({ queryKey: ["dashboard"] }); },
+    onError: (e) => toast.fromError(e),
+  });
+  const move = (i: number, d: -1 | 1) => {
+    const ids = servers.map((s) => s.id);
+    [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
+    reorder.mutate(ids);
+  };
+  return (
+    <Dialog open={open} onClose={onClose} title="调整顺序" description="总览、服务器页和 Telegram 日报都按这个顺序排。新添加的服务器排在最后。">
+      <ul className="divide-y divide-border/60">
+        {servers.map((s, i) => (
+          <li key={s.id} className="flex items-center justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{s.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{[s.region, s.public_host || s.agent?.public_ipv4, s.node_count > 0 ? null : "只做监控"].filter(Boolean).join(" · ")}</p>
+            </div>
+            <div className="flex shrink-0 gap-0.5">
+              <Button size="sm" variant="ghost" aria-label={`上移 ${s.name}`} disabled={i === 0 || reorder.isPending} onClick={() => move(i, -1)}><ArrowUp className="h-3.5 w-3.5" /></Button>
+              <Button size="sm" variant="ghost" aria-label={`下移 ${s.name}`} disabled={i === servers.length - 1 || reorder.isPending} onClick={() => move(i, 1)}><ArrowDown className="h-3.5 w-3.5" /></Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Dialog>
+  );
+}
+
 // ---------- list ----------
 export function ServersPage() {
   const q = useQuery({ queryKey: ["servers"], queryFn: () => get<Server[]>("/api/v1/servers"), refetchInterval: 15000 });
   const toast = useToast();
   const qc = useQueryClient();
   const [create, setCreate] = React.useState(false);
+  const [ordering, setOrdering] = React.useState(false);
   const checkAgentUpdates = useMutation({
     mutationFn: () => post<{ message: string }>("/api/v1/agents/update"),
     onSuccess: (r) => { toast.success(r.message); qc.invalidateQueries({ queryKey: ["servers"] }); },
@@ -131,6 +166,7 @@ export function ServersPage() {
               <RefreshCw className="h-4 w-4" /> 检查 agent 更新（{stale} 台待同步）
             </Button>
           )}
+          {(q.data?.length ?? 0) > 1 && <Button variant="outline" onClick={() => setOrdering(true)}><ArrowUpDown className="h-4 w-4" /> 调整顺序</Button>}
           <Button onClick={() => setCreate(true)}><Plus className="h-4 w-4" /> 添加服务器</Button>
         </>
       } />
@@ -139,9 +175,10 @@ export function ServersPage() {
       ) : !q.data?.length ? (
         <Empty title="还没有服务器" description="添加一台机器，然后用生成的命令安装 agent。" action={<Button onClick={() => setCreate(true)}>添加服务器</Button>} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{sortServers(q.data).map((s) => <ServerCard key={s.id} s={s} />)}</div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{q.data.map((s) => <ServerCard key={s.id} s={s} />)}</div>
       )}
       <ServerDialog open={create} onClose={() => setCreate(false)} />
+      <OrderDialog open={ordering} onClose={() => setOrdering(false)} servers={q.data ?? []} />
     </div>
   );
 }

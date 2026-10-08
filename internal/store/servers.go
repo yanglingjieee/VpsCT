@@ -7,14 +7,14 @@ import (
 	"ctlvps/internal/domain"
 )
 
-const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, quota_stop, quota_stopped, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, udp_over_tcp, cert_mode, enabled, created_at, updated_at`
+const serverCols = `id, name, region, public_host, tags, notes, quota_bytes, quota_reset_day, quota_billing, quota_stop, quota_stopped, core_mode, ipv4_only, prefer_ipv6, ingress_ack, strict_source, udp_over_tcp, cert_mode, enabled, sort_order, created_at, updated_at`
 
 func scanServer(sc interface{ Scan(...any) error }) (domain.Server, error) {
 	var v domain.Server
 	var tags, created, updated string
 	var quotaStop, quotaStopped, ipv4Only, preferIPv6, ingressAck, strictSource, udpOverTCP, enabled int
 	if err := sc.Scan(&v.ID, &v.Name, &v.Region, &v.PublicHost, &tags, &v.Notes, &v.QuotaBytes, &v.QuotaResetDay, &v.QuotaBilling, &quotaStop, &quotaStopped,
-		&v.CoreMode, &ipv4Only, &preferIPv6, &ingressAck, &strictSource, &udpOverTCP, &v.CertMode, &enabled, &created, &updated); err != nil {
+		&v.CoreMode, &ipv4Only, &preferIPv6, &ingressAck, &strictSource, &udpOverTCP, &v.CertMode, &enabled, &v.SortOrder, &created, &updated); err != nil {
 		return v, err
 	}
 	v.Tags = jsonList[string](tags)
@@ -30,7 +30,7 @@ func scanServer(sc interface{ Scan(...any) error }) (domain.Server, error) {
 	return v, nil
 }
 
-// CreateServer inserts a server and its (pending) agent record.
+// CreateServer inserts a server, last in the order, and its (pending) agent record.
 func (s *Store) CreateServer(ctx context.Context, v *domain.Server) error {
 	now := s.Now()
 	if v.CoreMode == "" {
@@ -46,9 +46,12 @@ func (s *Store) CreateServer(ctx context.Context, v *domain.Server) error {
 		v.Tags = []string{}
 	}
 	return s.Tx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,quota_stop,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,udp_over_tcp,cert_mode,enabled,created_at,updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), fmtTime(now), fmtTime(now))
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order),0)+1 FROM servers`).Scan(&v.SortOrder); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `INSERT INTO servers(name,region,public_host,tags,notes,quota_bytes,quota_reset_day,quota_billing,quota_stop,core_mode,ipv4_only,prefer_ipv6,ingress_ack,strict_source,udp_over_tcp,cert_mode,enabled,sort_order,created_at,updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			v.Name, v.Region, v.PublicHost, jsonStr(v.Tags), v.Notes, v.QuotaBytes, v.QuotaResetDay, v.QuotaBilling, b2i(v.QuotaStop), v.CoreMode, b2i(v.IPv4Only), b2i(v.PreferIPv6), b2i(v.IngressAck), b2i(v.StrictSource), b2i(v.UDPOverTCP), v.CertMode, b2i(v.Enabled), v.SortOrder, fmtTime(now), fmtTime(now))
 		if err != nil {
 			return err
 		}
@@ -60,7 +63,8 @@ func (s *Store) CreateServer(ctx context.Context, v *domain.Server) error {
 }
 
 // UpdateServer saves editable fields. Whether the server is stopped for its
-// quota is not one of them: see SetServerQuotaStopped.
+// quota and where it stands in the order are not among them: see
+// SetServerQuotaStopped and ReorderServers.
 func (s *Store) UpdateServer(ctx context.Context, v *domain.Server) error {
 	now := s.Now()
 	if v.Tags == nil {
@@ -112,9 +116,51 @@ func (s *Store) GetServer(ctx context.Context, id int64) (domain.Server, error) 
 	return v, err
 }
 
-// ListServers returns all servers.
+// ReorderServers puts the given servers first, in that order. Servers it
+// does not name keep their order after them.
+func (s *Store) ReorderServers(ctx context.Context, ids []int64) error {
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM servers ORDER BY sort_order, name`)
+		if err != nil {
+			return err
+		}
+		var current []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			current = append(current, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		known := make(map[int64]bool, len(current))
+		for _, id := range current {
+			known[id] = true
+		}
+		order := make([]int64, 0, len(current))
+		placed := make(map[int64]bool, len(current))
+		for _, id := range append(append([]int64{}, ids...), current...) {
+			if known[id] && !placed[id] {
+				order = append(order, id)
+				placed[id] = true
+			}
+		}
+		for i, id := range order {
+			if _, err := tx.ExecContext(ctx, `UPDATE servers SET sort_order=? WHERE id=?`, i+1, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListServers returns all servers in the operator's order.
 func (s *Store) ListServers(ctx context.Context) ([]domain.Server, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+serverCols+` FROM servers ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+serverCols+` FROM servers ORDER BY sort_order, name`)
 	if err != nil {
 		return nil, err
 	}

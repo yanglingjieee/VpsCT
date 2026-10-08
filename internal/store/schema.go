@@ -747,4 +747,13 @@ ALTER TABLE servers ADD COLUMN quota_stopped INTEGER NOT NULL DEFAULT 0 CHECK(qu
 );
 CREATE UNIQUE INDEX idx_incidents_open ON incidents(key) WHERE resolved_at IS NULL;
 CREATE INDEX idx_incidents_opened ON incidents(opened_at);`,
+	// v37: servers are shown in the order the operator puts them in. They
+	// start in the order they were shown before: the ones carrying nodes,
+	// then the ones only watched, by name within each.
+	`ALTER TABLE servers ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+UPDATE servers SET sort_order = (
+ SELECT COUNT(*) FROM servers o
+ WHERE (NOT EXISTS(SELECT 1 FROM nodes n WHERE n.server_id=o.id), o.name)
+    <= (NOT EXISTS(SELECT 1 FROM nodes n WHERE n.server_id=servers.id), servers.name)
+);`,
 }

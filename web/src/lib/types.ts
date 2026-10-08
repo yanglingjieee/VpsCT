@@ -199,6 +199,8 @@ export interface Server {
   udp_over_tcp: boolean;
   cert_mode: string;
   enabled: boolean;
+  /** Place in every list of servers; set by reordering. */
+  sort_order: number;
   created_at: string;
   agent?: Agent;
   agent_status: "pending" | "online" | "offline";

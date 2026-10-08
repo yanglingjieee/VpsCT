@@ -77,6 +77,26 @@ func (u Userinfo) Header() string {
 	return strings.Join(parts, "; ")
 }
 
+// Readable renders the same counters as sizes and a date, for a client that
+// prints the header as it is: "upload=2.08GB; download=28.2GB; total=400GB".
+func (u Userinfo) Readable() string {
+	size := func(n int64) string {
+		num, unit, _ := strings.Cut(FormatBytes(n), " ")
+		if strings.Contains(num, ".") {
+			num = strings.TrimRight(strings.TrimRight(num, "0"), ".")
+		}
+		return num + unit
+	}
+	parts := []string{"upload=" + size(u.Upload), "download=" + size(u.Download)}
+	if u.Total > 0 {
+		parts = append(parts, "total="+size(u.Total))
+	}
+	if u.Expire != nil {
+		parts = append(parts, "until="+u.Expire.Format("2006-01-02"))
+	}
+	return strings.Join(parts, "; ")
+}
+
 // Remaining returns total - used (never negative), or -1 when unlimited.
 func (u Userinfo) Remaining() int64 {
 	if u.Total <= 0 {

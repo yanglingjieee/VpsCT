@@ -6,7 +6,7 @@ import type { Series, Server, Share } from "@/lib/types";
 import { cn, fmtBytes, STATUS_LABELS } from "@/lib/utils";
 import { Button, Card, CardContent, CardHeader, CardTitle, Empty, PageHeader, Progress, SectionTitle, Spinner, Stat } from "@/components/ui";
 import { TrafficBars } from "@/components/charts";
-import { ServerCard, sortServers } from "@/components/server-card";
+import { ServerCard } from "@/components/server-card";
 
 interface Dash {
   counts: { servers: number; servers_online: number; shares: number; shares_active: number; lines: number };
@@ -50,9 +50,9 @@ export function DashboardPage() {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="flex flex-col lg:col-span-2">
           <CardHeader><CardTitle>近 30 天流量（全部服务器）</CardTitle></CardHeader>
-          <CardContent>{d.traffic.servers_30d?.has_data ? <TrafficBars points={d.traffic.servers_30d.points} /> : <p className="text-sm text-muted-foreground">暂无用量记录</p>}</CardContent>
+          <CardContent className="flex flex-1 flex-col">{d.traffic.servers_30d?.has_data ? <TrafficBars points={d.traffic.servers_30d.points} fill /> : <p className="text-sm text-muted-foreground">暂无用量记录</p>}</CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>用户用量（本期）</CardTitle></CardHeader>
@@ -80,7 +80,7 @@ export function DashboardPage() {
       </div>
 
       <SectionTitle className="mt-8">服务器</SectionTitle>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{sortServers(d.servers).map((s) => <ServerCard key={s.id} s={s} />)}</div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{d.servers.map((s) => <ServerCard key={s.id} s={s} />)}</div>
     </div>
   );
 }

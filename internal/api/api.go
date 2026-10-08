@@ -321,6 +321,7 @@ func (a *API) routes() {
 	// servers
 	a.handle("GET /api/v1/servers", adminAccess, a.listServers)
 	a.handle("POST /api/v1/servers", adminAccess, a.createServer)
+	a.handle("POST /api/v1/servers/reorder", adminAccess, a.reorderServers)
 	a.handle("GET /api/v1/servers/{id}", adminAccess, a.getServer)
 	a.handle("PUT /api/v1/servers/{id}", adminAccess, a.updateServer)
 	a.handle("DELETE /api/v1/servers/{id}", adminAccess, a.deleteServer)

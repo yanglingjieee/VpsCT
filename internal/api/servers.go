@@ -131,6 +131,20 @@ func (a *API) listServers(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (a *API) reorderServers(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	if err := a.Store.ReorderServers(r.Context(), in.IDs); err != nil {
+		return err
+	}
+	a.audit(r, "server.reorder", "", nil)
+	return a.listServers(w, r)
+}
+
 type serverInput struct {
 	Name          string   `json:"name"`
 	Region        string   `json:"region"`

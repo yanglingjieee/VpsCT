@@ -169,7 +169,13 @@ func (a *API) serveSub(w http.ResponseWriter, r *http.Request, sub domain.Subscr
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="clash%s"; filename*=UTF-8''%s`, extFor(rendered.Format), encodeFilename(title, rendered.Format)))
 	if sub.UserinfoHeader && bundle.Userinfo != nil {
-		w.Header().Set("Subscription-Userinfo", bundle.Userinfo.Header())
+		info := bundle.Userinfo.Header()
+		// Shadowrocket prints this header under the profile's name as it is,
+		// byte counts and all, so it gets sizes it can show.
+		if subscription.DetectFormat(r.UserAgent()) == subscription.FormatShadowrocket {
+			info = bundle.Userinfo.Readable()
+		}
+		w.Header().Set("Subscription-Userinfo", info)
 	}
 	if title != "" {
 		w.Header().Set("Profile-Title", "base64:"+base64Std(title))

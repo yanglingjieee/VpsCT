@@ -493,6 +493,19 @@ func TestUserinfo(t *testing.T) {
 	if !strings.Contains(ui.Header(), "expire=1893456000") {
 		t.Fatal(ui.Header())
 	}
+	// For a client that prints the header as it is: sizes and a date.
+	until := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		ui   Userinfo
+		want string
+	}{
+		{Userinfo{Upload: 2230234763, Download: 30280548909, Total: 429496729600}, "upload=2.08GB; download=28.2GB; total=400GB"},
+		{Userinfo{Download: 1536, Expire: &until}, "upload=0B; download=1.5KB; until=2026-12-31"},
+	} {
+		if got := tc.ui.Readable(); got != tc.want {
+			t.Fatalf("readable: got %q, want %q", got, tc.want)
+		}
+	}
 }
 
 func TestValidateGroups(t *testing.T) {
