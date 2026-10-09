@@ -214,16 +214,27 @@ check_environment() {
   [[ "$VERSION" == latest ]] || valid_version "$VERSION" || die '版本格式应为 vX.Y.Z 或 latest'
 }
 
+# The official repository is one third-party host; when it does not answer,
+# the distribution's own package serves the same one-line reverse proxy.
+caddy_from_official_repo() {
+  apt-get install -y --no-install-recommends debian-keyring debian-archive-keyring apt-transport-https gnupg || return 1
+  download 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' "$WORK/caddy.key" || return 1
+  download 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' "$WORK/caddy.list" || return 1
+  gpg --batch --yes --dearmor -o "$WORK/caddy.gpg" "$WORK/caddy.key" || return 1
+  install -m 0644 "$WORK/caddy.gpg" /usr/share/keyrings/caddy-stable-archive-keyring.gpg || return 1
+  install -m 0644 "$WORK/caddy.list" /etc/apt/sources.list.d/caddy-stable.list || return 1
+  apt-get update || return 1
+  apt-get install -y --no-install-recommends caddy || return 1
+}
+
 install_caddy() {
   info '通过 Caddy 官方软件源安装 HTTPS 代理'
-  apt-get install -y --no-install-recommends debian-keyring debian-archive-keyring apt-transport-https gnupg
-  download 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' "$WORK/caddy.key"
-  download 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' "$WORK/caddy.list"
-  gpg --batch --yes --dearmor -o "$WORK/caddy.gpg" "$WORK/caddy.key"
-  install -m 0644 "$WORK/caddy.gpg" /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  install -m 0644 "$WORK/caddy.list" /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update
-  apt-get install -y --no-install-recommends caddy
+  if ! caddy_from_official_repo; then
+    info 'Caddy 官方软件源暂时不可用，改用系统软件源里的 Caddy'
+    rm -f /etc/apt/sources.list.d/caddy-stable.list /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    apt-get update
+    apt-get install -y --no-install-recommends caddy
+  fi
   cat > "$WORK/Caddyfile" <<EOF
 # Managed by VpsCT installer
 $DOMAIN {

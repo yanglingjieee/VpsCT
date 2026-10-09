@@ -717,11 +717,26 @@ func ProtocolShareable(p string) bool {
 	return false
 }
 
-// ProtocolLanding reports whether an entry server can relay to an inbound of
-// the protocol: the link must authenticate the landing without a certificate
-// a relay could only skip. Reality pins a public key; Shadowsocks 2022 a key.
-func ProtocolLanding(p string) bool {
-	return p == ProtocolVLESS || p == ProtocolShadowsocks
+// LandingProblem says why an entry server cannot relay to the inbound, or ""
+// when it can: the link must authenticate the landing without a certificate
+// a relay could only skip. Reality pins a public key and Shadowsocks 2022 a
+// key. Hysteria2 does so when the panel issued its certificate, which the
+// entry is then given to trust, or when the certificate comes from a public
+// authority.
+func LandingProblem(n Node) string {
+	switch n.Protocol {
+	case ProtocolVLESS, ProtocolShadowsocks:
+		return ""
+	case ProtocolHysteria2:
+		var srv map[string]any
+		_ = json.Unmarshal(n.ServerParams, &srv)
+		cert, _ := srv["tls_cert"].(string)
+		if mode, _ := srv["cert_mode"].(string); mode == "acme" || mode == "self_signed" && cert != "" {
+			return ""
+		}
+		return "这个 Hysteria2 入站的证书是那台机器自己生成的，入口机没法确认它的身份；新建一个 Hysteria2 入站再选它"
+	}
+	return "落地入站只能是 VLESS Reality、Shadowsocks 2022 或 Hysteria2：入口机要能不靠跳过证书校验来确认落地机的身份"
 }
 
 // DeployableProtocols lists what ctlvps can create on a managed VPS.

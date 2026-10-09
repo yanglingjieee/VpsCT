@@ -487,6 +487,12 @@ func (b *Builder) relayTarget(ctx context.Context, member domain.Node, line doma
 			r.Protocol, r.Method = "ss", str(srv, "method")
 			r.Password = str(srv, "password") + ":" + str(cred, "password")
 			r.UDPOverTCP = server.UDPOverTCP
+		case domain.ProtocolHysteria2:
+			if domain.LandingProblem(landing) != "" {
+				return nil
+			}
+			r.Protocol, r.Password = "hysteria2", str(cred, "password")
+			r.ServerName, r.Cert, r.ObfsPassword = str(srv, "tls_domain"), str(srv, "tls_cert"), str(srv, "obfs_password")
 		default:
 			return nil
 		}

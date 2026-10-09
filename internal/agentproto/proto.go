@@ -244,12 +244,12 @@ type NodeSpec struct {
 
 // RelaySpec is the landing a relay member forwards to: a listener on another
 // server and this user's credential there. Protocol is "vless" (Reality; the
-// default) or "ss" (Shadowsocks 2022).
+// default), "ss" (Shadowsocks 2022) or "hysteria2".
 type RelaySpec struct {
 	Protocol string `json:"protocol,omitempty"`
 	Server   string `json:"server"`
 	Port     int    `json:"port"`
-	// VLESS Reality
+	// VLESS Reality; Hysteria2 uses ServerName too
 	UUID       string `json:"uuid,omitempty"`
 	Flow       string `json:"flow,omitempty"`
 	ServerName string `json:"server_name,omitempty"`
@@ -257,9 +257,14 @@ type RelaySpec struct {
 	ShortID    string `json:"short_id,omitempty"`
 	// Shadowsocks 2022: Password is "server key:user key". UDPOverTCP sends
 	// UDP inside the TCP connection instead of to the landing's UDP port.
+	// Hysteria2: Password is the user's.
 	Method     string `json:"method,omitempty"`
 	Password   string `json:"password,omitempty"`
 	UDPOverTCP bool   `json:"udp_over_tcp,omitempty"`
+	// Hysteria2: Cert is the landing's own certificate (DER in base64), the
+	// only one the entry accepts; empty when a public authority issued it.
+	Cert         string `json:"cert,omitempty"`
+	ObfsPassword string `json:"obfs_password,omitempty"`
 }
 
 // CoreVersion pins a downloadable core binary.

@@ -171,7 +171,7 @@ function LineDialog({ state, onClose }: { state: { line?: Line } | null; onClose
           </Select>
         </Field>
         {f.relay && (
-          <Field label="落地（流量出去的入站）" hint="落地机的地址和凭据不会出现在用户的配置里，只有入口机能连它。落地入站要用 VLESS Reality 或 Shadowsocks 2022。">
+          <Field label="落地（流量出去的入站）" hint="落地机的地址和凭据不会出现在用户的配置里，只有入口机能连它。落地入站要用 VLESS Reality、Shadowsocks 2022 或 Hysteria2。">
             <Select value={String(f.landing)} onChange={(e) => setF((p) => ({ ...p, landing: Number(e.target.value) }))}>
               <option value="0">请选择</option>
               {list.filter((c) => c.id !== f.entry && c.landing).map((c) => <option key={c.id} value={c.id}>{label(c)}</option>)}
@@ -244,7 +244,7 @@ const INBOUND_PROTOCOLS = ["vless", "hysteria2", "tuic", "trojan", "anytls", "ss
 const TLS_PROTOCOLS = ["hysteria2", "tuic", "trojan", "anytls"];
 const PROTOCOL_HINTS: Record<string, string> = {
   vless: "TCP。借用一个真实网站的握手，不需要证书。最适合放在入口，也能做落地。",
-  hysteria2: "UDP（QUIC）。丢包多的线路上更快，需要证书。",
+  hysteria2: "UDP（QUIC）。丢包多的线路上更快，需要证书。也能做落地：每个人到落地机只占一条长连接，适合新建连接容易丢包的落地机。",
   tuic: "UDP（QUIC）。需要证书。",
   trojan: "TCP + TLS。需要证书。",
   anytls: "TCP + TLS。需要证书。",
@@ -307,7 +307,7 @@ function InboundDialog({ state, servers, onClose }: { state: { node?: Node } | n
           <>
             <Field label="证书">
               <Select value={f.cert_mode} onChange={(e) => set("cert_mode", e.target.value)}>
-                <option value="self_signed">自签名（客户端不校验证书，能用但不防中间人）</option>
+                <option value="self_signed">{f.protocol === "hysteria2" ? "自签名（客户端不校验证书；做落地时入口机只认这一张）" : "自签名（客户端不校验证书，能用但不防中间人）"}</option>
                 <option value="acme">自动签发（要有域名指向这台服务器，且 80 端口可达）</option>
                 <option value="external">服务器上已有的证书</option>
               </Select>

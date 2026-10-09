@@ -3,7 +3,9 @@ package core
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -111,6 +113,20 @@ func (d *SingBox) tlsBlock(spec agentproto.NodeSpec, ds *agentproto.DesiredState
 			tls["acme"] = acme
 		}
 	default:
+		// A certificate issued by the panel is served as given: an entry
+		// relaying here trusts exactly that one.
+		if c, k := str(spec.Params, "tls_cert"), str(spec.Params, "tls_key"); cert.Mode == "self_signed" && c != "" && k != "" {
+			certLines, err := pemLines("CERTIFICATE", c)
+			if err != nil {
+				return nil, fmt.Errorf("cert for %s: %w", domain, err)
+			}
+			keyLines, err := pemLines("EC PRIVATE KEY", k)
+			if err != nil {
+				return nil, fmt.Errorf("key for %s: %w", domain, err)
+			}
+			tls["certificate"], tls["key"] = certLines, keyLines
+			break
+		}
 		files, err := d.CertResolver(cert)
 		if err != nil {
 			return nil, fmt.Errorf("cert for %s: %w", domain, err)
@@ -119,6 +135,15 @@ func (d *SingBox) tlsBlock(spec agentproto.NodeSpec, ds *agentproto.DesiredState
 		tls["key_path"] = files.Key
 	}
 	return tls, nil
+}
+
+// pemLines renders base64 DER as the PEM lines sing-box takes inline.
+func pemLines(blockType, der string) ([]string, error) {
+	raw, err := base64.StdEncoding.DecodeString(der)
+	if err != nil || len(raw) == 0 {
+		return nil, errors.New("not base64 DER")
+	}
+	return strings.Split(strings.TrimSpace(string(pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: raw}))), "\n"), nil
 }
 
 func firstNonEmpty(v ...string) string {
@@ -299,12 +324,30 @@ func (d *SingBox) BuildConfig(ds *agentproto.DesiredState, nodes []agentproto.No
 				// by the landing, with the landing's address preference.
 				memberOut = fmt.Sprintf("node-%d-relay", m.NodeID)
 				relay := map[string]any{"tag": memberOut, "server": r.Server, "server_port": r.Port, "routing_mark": memberMark}
-				if r.Protocol == "ss" {
+				switch r.Protocol {
+				case "ss":
 					relay["type"], relay["method"], relay["password"] = "shadowsocks", r.Method, r.Password
 					if r.UDPOverTCP {
 						relay["udp_over_tcp"] = map[string]any{"enabled": true, "version": 2}
 					}
-				} else {
+				case "hysteria2":
+					// One QUIC connection carries all of the user's streams
+					// and datagrams: nothing new is set up on the path per
+					// connection.
+					relay["type"], relay["password"] = "hysteria2", r.Password
+					tls := map[string]any{"enabled": true, "server_name": r.ServerName, "alpn": []string{"h3"}}
+					if r.Cert != "" {
+						lines, err := pemLines("CERTIFICATE", r.Cert)
+						if err != nil {
+							return nil, fmt.Errorf("node %d: 中转落地证书无效", m.NodeID)
+						}
+						tls["certificate"] = lines
+					}
+					relay["tls"] = tls
+					if r.ObfsPassword != "" {
+						relay["obfs"] = map[string]any{"type": "salamander", "password": r.ObfsPassword}
+					}
+				default:
 					relay["type"], relay["uuid"], relay["flow"], relay["packet_encoding"] = "vless", r.UUID, firstNonEmpty(r.Flow, "xtls-rprx-vision"), "xudp"
 					relay["tls"] = map[string]any{
 						"enabled": true, "server_name": r.ServerName,

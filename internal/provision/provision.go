@@ -207,6 +207,15 @@ func NewNode(server domain.Server, host string, opts Options) (domain.Node, erro
 			client["skip-cert-verify"] = true
 		}
 		srv["password"] = pw
+		if insecure {
+			// Issued here rather than on the machine, so that an entry
+			// relaying to this inbound can be given the certificate to trust.
+			cert, key, err := IssueCertificate(tlsDomain)
+			if err != nil {
+				return domain.Node{}, err
+			}
+			srv["tls_cert"], srv["tls_key"] = cert, key
+		}
 		if opts.Obfs {
 			op := Password(12)
 			client["obfs"] = "salamander"

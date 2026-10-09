@@ -2,10 +2,12 @@ package agentproto
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
 	"ctlvps/internal/agentbudget"
 	"ctlvps/internal/corecompat"
 	"ctlvps/internal/mieruconfig"
 	"ctlvps/internal/wgconfig"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -238,6 +240,7 @@ var (
 	// Shadowsocks 2022 only: the older ciphers have no per-user keys.
 	relaySSMethod = regexp.MustCompile(`^2022-blake3-(aes-128-gcm|aes-256-gcm|chacha20-poly1305)$`)
 	relaySSKeys   = regexp.MustCompile(`^[A-Za-z0-9+/]{20,48}={0,2}:[A-Za-z0-9+/]{20,48}={0,2}$`)
+	relaySecret   = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 )
 
 // Validate accepts only a complete, well-formed landing: a relay member with
@@ -251,15 +254,32 @@ func (r RelaySpec) Validate() error {
 	}
 	switch r.Protocol {
 	case "", "vless":
-		if len(r.UUID) != 36 || !relayHost.MatchString(r.ServerName) || !relayKey.MatchString(r.PublicKey) || !relayHex.MatchString(r.ShortID) || r.Method != "" || r.Password != "" || r.UDPOverTCP {
+		if len(r.UUID) != 36 || !relayHost.MatchString(r.ServerName) || !relayKey.MatchString(r.PublicKey) || !relayHex.MatchString(r.ShortID) || r.Method != "" || r.Password != "" || r.UDPOverTCP || r.Cert != "" || r.ObfsPassword != "" {
 			return errors.New("中转落地参数无效")
 		}
 		if r.Flow != "" && r.Flow != "xtls-rprx-vision" {
 			return errors.New("中转落地流控无效")
 		}
 	case "ss":
-		if !relaySSMethod.MatchString(r.Method) || !relaySSKeys.MatchString(r.Password) || r.UUID != "" || r.PublicKey != "" {
+		if !relaySSMethod.MatchString(r.Method) || !relaySSKeys.MatchString(r.Password) || r.UUID != "" || r.PublicKey != "" || r.Cert != "" || r.ObfsPassword != "" {
 			return errors.New("中转落地参数无效")
+		}
+	case "hysteria2":
+		if _, err := netip.ParseAddr(r.ServerName); err != nil && !relayHost.MatchString(r.ServerName) {
+			return errors.New("中转落地参数无效")
+		}
+		if !relaySecret.MatchString(r.Password) || r.ObfsPassword != "" && !relaySecret.MatchString(r.ObfsPassword) ||
+			r.UUID != "" || r.Flow != "" || r.PublicKey != "" || r.ShortID != "" || r.Method != "" || r.UDPOverTCP {
+			return errors.New("中转落地参数无效")
+		}
+		if r.Cert != "" {
+			der, err := base64.StdEncoding.DecodeString(r.Cert)
+			if err != nil || len(r.Cert) > 8192 {
+				return errors.New("中转落地证书无效")
+			}
+			if _, err := x509.ParseCertificate(der); err != nil {
+				return errors.New("中转落地证书无效")
+			}
 		}
 	default:
 		return errors.New("中转落地协议不支持")

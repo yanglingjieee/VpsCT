@@ -24,4 +24,4 @@ grep -q '^panel.example.test {' /etc/caddy/Caddyfile
 grep -q 'reverse_proxy 127.0.0.1:8080' /etc/caddy/Caddyfile
 curl -fsS http://127.0.0.1:8080/healthz >/dev/null
 systemctl stop ctlvpsd
-printf 'Caddy branch passed: existing config protection, official package installation and config validation (no public certificate issued).\n'
+printf 'Caddy branch passed: existing config protection, package installation and config validation (no public certificate issued).\n'

@@ -133,7 +133,7 @@ func (a *API) lineCandidates(w http.ResponseWriter, r *http.Request) error {
 			continue
 		}
 		out = append(out, lineNode{ID: n.ID, Name: n.Name, ServerID: *n.ServerID, ServerName: servers[*n.ServerID], ListenPort: n.ListenPort, SNI: nodeSNI(n),
-			Protocol: n.Protocol, Landing: domain.ProtocolLanding(n.Protocol)})
+			Protocol: n.Protocol, Landing: domain.LandingProblem(n) == ""})
 	}
 	httpx.OK(w, out)
 	return nil

@@ -79,8 +79,8 @@ func (s *Store) checkLine(ctx context.Context, v *domain.Line) error {
 		if err := LineNodeUsable(n); err != nil {
 			return errors.New(role + "入站" + err.Error())
 		}
-		if i == 1 && !domain.ProtocolLanding(n.Protocol) {
-			return errors.New("落地入站只能是 VLESS Reality 或 Shadowsocks 2022：入口机要能不靠证书确认落地机的身份")
+		if problem := domain.LandingProblem(n); i == 1 && problem != "" {
+			return errors.New(problem)
 		}
 	}
 	return nil

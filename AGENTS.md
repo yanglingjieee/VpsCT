@@ -27,6 +27,7 @@
 - **没有入站的服务器只被观察**：下发状态里不带主机调优（`desired.watchOnly`），agent 不动它的拥塞控制和时间同步；安装脚本只补装缺少的依赖。探针接入别的用途的机器时不能改动它。
 - **实时数据不进心跳**：每秒的读数和探测结果走 agent 的常驻子进程（`internal/agentlive`，以 `ctlvps-net` 运行）到控制端 `internal/live.Hub` 的一条 WebSocket，再经事件流到网页；数据库只按分钟写。心跳仍是流量计量和配置下发的唯一通道，实时通道断了不影响它。子进程没有回到 root 进程的通道（只有日志），不要给它加。
 - **探测目标是面板里的内容**（`probe_targets`），所有服务器都探；只有入口机的结果会触发 Telegram 提醒。
+- **落地要能被入口机确认身份**（`domain.LandingProblem`）：VLESS Reality（公钥）、Shadowsocks 2022（密钥）、Hysteria2（面板签发的证书，`provision.IssueCertificate`，存在入站的 `tls_cert` / `tls_key` 里，DER 的 base64；入口机拿到的是 `RelaySpec.Cert`）。不要为了让某个协议能做落地去加 `insecure`。Hysteria2 落地是给“新建连接会丢包、长连接稳定”的落地机用的：每个用户到落地机只有一条 QUIC 连接。
 - **不回退直连**：分组里没有线路时填 `REJECT`（`subscription.EmptyGroupPolicy`）。
 - **小火箭的线路在首页选**：配置里 [Proxy] 的节点列在小火箭首页，规则里的 `PROXY` 就是首页点中的那一条。给小火箭的规则用 `PROXY`，不为线路建 select 分组（分组在另一个页面选，首页点线路对它不起作用，流量会一直走分组的第一条）。用户没有线路时渲染器把 `PROXY` 换成 `REJECT`。
 - 用户的专属链接是 `/r/<24 位>`：浏览器打开返回前端的个人页（`web/src/pages/public.tsx`，数据来自同一地址加 `?page=1`），客户端打开返回配置。小火箭和 Surge 用地址末段给配置起名，一键导入给它们的是带名字的形式 `/r/<码>/<格式>/<站点名>`（名字只是给客户端看的，服务端不读）；各客户端里配置的名字一律是站点名，不是用户名。
