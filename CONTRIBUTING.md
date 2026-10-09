@@ -6,7 +6,7 @@
 
 ## 1. 本地开发
 
-需要 Go 1.26.8+、Node.js 24、npm；打发行包还需要 Python 3.11+。Linux 安装器面向 Debian / Ubuntu + systemd。
+需要 Go 1.26.9+、Node.js 24、npm；打发行包还需要 Python 3.11+。Linux 安装器面向 Debian / Ubuntu + systemd。
 
 ```bash
 cd web
