@@ -819,4 +819,8 @@ CREATE TABLE probe_stats (
 ALTER TABLE rulesets DROP COLUMN shadowrocket;
 ALTER TABLE rulesets DROP COLUMN surge;
 ALTER TABLE rulesets DROP COLUMN singbox;`,
+	// v41: templates and group presets are gone. Their tables stay, empty:
+	// shares still names rule_templates in a column SQLite cannot drop.
+	`DELETE FROM rule_templates;
+DELETE FROM proxy_group_presets;`,
 }

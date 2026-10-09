@@ -44,8 +44,8 @@ func testMitaSystemd(ctx context.Context, st *store.Store, d *desired.Builder, s
 		path := fmt.Sprintf("/tmp/mieru-client-%d.json", i)
 		start := func(node domain.Node) func() {
 			if os.Getenv("MIERU_TEST_CLIENT") == "mihomo" {
-				template := domain.RuleTemplate{Kind: "mihomo", Content: fmt.Sprintf("mixed-port: %d\nallow-lan: false\nmode: rule\nlog-level: error\nproxies: []\nproxy-groups:\n  - name: fixture\n    type: select\n    proxies: ['{{all}}']\nrules: ['MATCH,fixture']\n", 1080+i)}
-				rendered, e := subscription.RenderMihomo(&subscription.Bundle{Name: "mieru-export", Template: &template, Proxies: []proxynode.Proxy{proxynode.FromDomain(node)}})
+				profile := fmt.Sprintf("mixed-port: %d\nallow-lan: false\nmode: rule\nlog-level: error\nproxies: []\nproxy-groups:\n  - name: fixture\n    type: select\n    proxies: ['{{all}}']\nrules: ['MATCH,fixture']\n", 1080+i)
+				rendered, e := subscription.RenderMihomo(&subscription.Bundle{Name: "mieru-export", Proxies: []proxynode.Proxy{proxynode.FromDomain(node)}}, profile)
 				must(e)
 				must(os.WriteFile(path, rendered.Body, 0600))
 				return process(ctx, "ip", "netns", "exec", "landing", "/fixtures/mihomo", "-d", fmt.Sprintf("/tmp/mihomo-%d", i), "-f", path)

@@ -13,7 +13,6 @@ import (
 	"ctlvps/internal/proxynode"
 	"ctlvps/internal/store"
 	"ctlvps/internal/subscription"
-	"ctlvps/internal/wgconfig"
 )
 
 func queryInt64Ptr(r *http.Request, name string) *int64 {
@@ -385,96 +384,6 @@ func (a *API) bulkDeleteNodes(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *API) setNodeChain(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		Name      string `json:"name"`
-		FrontID   int64  `json:"front_id"`
-		LandingID int64  `json:"landing_id"`
-	}
-	if err := httpx.Decode(r, &in); err != nil {
-		return err
-	}
-	if in.LandingID == 0 {
-		return httpx.BadRequest("请选择落地节点")
-	}
-	landing, err := a.Store.GetNode(r.Context(), in.LandingID)
-	if err != nil {
-		return httpx.ErrNotFound
-	}
-	if in.FrontID == 0 {
-		if landing.Source == domain.NodeChain {
-			if err := a.Store.DeleteNode(r.Context(), landing.ID); err != nil {
-				return err
-			}
-			a.audit(r, "node.unchain", landing.Name, nil)
-			httpx.NoContent(w)
-			return nil
-		}
-		chains, _ := a.Store.ListNodes(r.Context(), store.NodeFilter{Source: domain.NodeChain, IncludeRevoked: true})
-		for _, ch := range chains {
-			if ch.Server == landing.Server && ch.Port == landing.Port {
-				_ = a.Store.DeleteNode(r.Context(), ch.ID)
-			}
-		}
-		if landing.ChainFrontNodeID != nil {
-			landing.ChainFrontNodeID = nil
-			if err := a.Store.UpdateNode(r.Context(), &landing); err != nil {
-				return err
-			}
-		}
-		a.audit(r, "node.unchain", landing.Name, nil)
-		httpx.OK(w, a.nodeViews(r, []domain.Node{landing})[0])
-		return nil
-	}
-	if in.FrontID == in.LandingID {
-		return httpx.BadRequest("前置和落地不能是同一个节点")
-	}
-	front, err := a.Store.GetNode(r.Context(), in.FrontID)
-	if err != nil {
-		return httpx.ErrNotFound
-	}
-	if front.Source == domain.NodeChain || landing.Source == domain.NodeChain {
-		return httpx.BadRequest("请选择原始节点作为前置和落地")
-	}
-	if front.Revoked || landing.Revoked {
-		return httpx.BadRequest("已撤销的节点不能组成链式")
-	}
-	name := strings.TrimSpace(in.Name)
-	if existing, err := a.Store.FindChainNode(r.Context(), front.ID, landing.Server, landing.Port); err == nil {
-		if name != "" && name != existing.Name {
-			existing.Name = name
-			if err := a.Store.UpdateNode(r.Context(), &existing); err != nil {
-				return err
-			}
-			a.audit(r, "node.chain", existing.Name, nil)
-		}
-		httpx.OK(w, a.nodeViews(r, []domain.Node{existing})[0])
-		return nil
-	}
-	if name == "" {
-		name = front.Name + " → " + landing.Name
-	}
-	frontID := front.ID
-	ch := domain.Node{
-		Name:             name,
-		Protocol:         landing.Protocol,
-		Server:           landing.Server,
-		Port:             landing.Port,
-		Params:           append(json.RawMessage(nil), landing.Params...),
-		Source:           domain.NodeChain,
-		ChainFrontNodeID: &frontID,
-		Enabled:          true,
-		OwnerUserID:      userFrom(r.Context()).ID,
-		Tags:             []string{},
-	}
-	if err := a.Store.CreateNode(r.Context(), &ch); err != nil {
-		return err
-	}
-	a.audit(r, "node.chain", ch.Name, map[string]any{"front": front.Name, "landing": landing.Name})
-	httpx.JSON(w, http.StatusCreated, a.nodeViews(r, []domain.Node{ch})[0])
-	return nil
-}
-
 func (a *API) getNode(w http.ResponseWriter, r *http.Request) error {
 	id, err := httpx.PathInt64(r, "id")
 	if err != nil {
@@ -596,46 +505,6 @@ func (a *API) deleteNode(w http.ResponseWriter, r *http.Request) error {
 	}
 	a.audit(r, "node.delete", n.Name, nil)
 	httpx.NoContent(w)
-	return nil
-}
-
-func (a *API) nodeURI(w http.ResponseWriter, r *http.Request) error {
-	id, err := httpx.PathInt64(r, "id")
-	if err != nil {
-		return err
-	}
-	n, err := a.Store.GetNode(r.Context(), id)
-	if err != nil {
-		return httpx.ErrNotFound
-	}
-	p := subscription.ProxyFor(n, a.serverHosts(r))
-	if p.Type == "ssh" || p.Type == "wireguard" || p.Type == "mieru" {
-		if err := proxynode.Validate(p); err != nil {
-			return httpx.BadRequest(err.Error())
-		}
-		out, _ := subscription.SingBoxOutbound(p, "")
-		result := map[string]any{"uri": "", "clash": p.ClashMap(), "singbox": out, "surge": ""}
-		if p.Type == "wireguard" {
-			c, _ := wgconfig.Decode(p.Params)
-			config, err := c.StandardConfig(p.Server, p.Port)
-			if err == nil {
-				result["wireguard"] = config
-			}
-			ep, ok := subscription.SingBoxEndpoint(p, "")
-			if ok {
-				result["singbox_endpoint"] = ep
-			}
-		}
-		httpx.OK(w, result)
-		return nil
-	}
-	uri, err := proxynode.ToURI(p)
-	if err != nil {
-		return httpx.BadRequest(err.Error())
-	}
-	clash := p.ClashMap()
-	surge := subscription.SurgeProxyLine(p, "")
-	httpx.OK(w, map[string]any{"uri": uri, "clash": clash, "surge": surge})
 	return nil
 }
 

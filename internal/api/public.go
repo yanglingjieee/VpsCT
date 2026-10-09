@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -183,12 +182,8 @@ func (a *API) serveSub(w http.ResponseWriter, r *http.Request, sub domain.Subscr
 	if short {
 		w.Header().Set("X-Short-Link", "1")
 	}
-	body := rendered.Body
-	if rendered.Format == subscription.FormatSurge {
-		body = surgeManagedBody(body, a.baseURL(r), r.URL)
-	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	_, _ = w.Write(rendered.Body)
 	return nil
 }
 
@@ -207,32 +202,6 @@ func subscriptionBrowserRequest(r *http.Request) bool {
 
 //go:embed subscription_browser.html
 var subscriptionBrowserPage string
-
-// Use this request's subscription capability, never a URL embedded in a
-// shared template. Pin the format so background updates need no Surge UA.
-func surgeManagedBody(body []byte, base string, requestURL *url.URL) []byte {
-	u, err := url.Parse(base)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || strings.ContainsAny(base, "\r\n\t ") {
-		return body
-	}
-	u.Path = strings.TrimRight(u.Path, "/") + requestURL.Path
-	u.RawPath = ""
-	u.RawQuery, u.Fragment = "", ""
-	// The address may already say the format: /s/<token>/surge[/<name>].
-	if !strings.Contains(requestURL.Path+"/", "/surge/") {
-		u.RawQuery = "format=surge"
-	}
-	// A custom template may already declare a managed URL. Replace it rather
-	// than emitting competing declarations or retaining another subscription.
-	lines := strings.Split(strings.TrimPrefix(string(body), "\ufeff"), "\n")
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(line), "#!MANAGED-CONFIG") {
-			kept = append(kept, line)
-		}
-	}
-	return []byte("#!MANAGED-CONFIG " + u.String() + " interval=3600 strict=false\n" + strings.Join(kept, "\n"))
-}
 
 func base64Std(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 

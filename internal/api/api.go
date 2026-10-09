@@ -391,13 +391,11 @@ func (a *API) routes() {
 	a.handle("POST /api/v1/nodes/reorder", adminAccess, a.reorderNodes)
 	a.handle("POST /api/v1/nodes/bulk-delete", adminAccess, a.bulkDeleteNodes)
 	a.handle("POST /api/v1/nodes/bulk-regenerate", adminAccess, a.bulkRegenerateNodes)
-	a.handle("POST /api/v1/nodes/chain", adminAccess, a.setNodeChain)
 	a.handle("GET /api/v1/nodes/{id}", adminAccess, a.getNode)
 	a.handle("POST /api/v1/nodes/{id}/network/preview", adminAccess, a.previewNodeNetwork)
 	a.handle("PUT /api/v1/nodes/{id}/network", adminAccess, a.updateNodeNetwork)
 	a.handle("PUT /api/v1/nodes/{id}", adminAccess, a.updateNode)
 	a.handle("DELETE /api/v1/nodes/{id}", adminAccess, a.deleteNode)
-	a.handle("GET /api/v1/nodes/{id}/uri", adminAccess, a.nodeURI)
 	a.handle("GET /api/v1/nodes/{id}/traffic", adminAccess, a.nodeTraffic)
 	a.handle("POST /api/v1/nodes/{id}/regenerate", adminAccess, a.regenerateNode)
 
@@ -411,26 +409,10 @@ func (a *API) routes() {
 	a.handle("GET /api/v1/externals/{id}/traffic", adminAccess, a.externalTraffic)
 
 	// subscriptions
-	a.handle("GET /api/v1/subscriptions", memberAccess, a.listSubscriptions)
-	a.handle("POST /api/v1/subscriptions", adminAccess, a.createSubscription)
-	a.handle("POST /api/v1/subscriptions/preview", adminAccess, a.previewSubscription)
-	a.handle("POST /api/v1/subscriptions/validate-groups", adminAccess, a.validateGroups)
-	a.handle("GET /api/v1/subscriptions/{id}", memberAccess, a.getSubscription)
-	a.handle("PUT /api/v1/subscriptions/{id}", adminAccess, a.updateSubscription)
-	a.handle("DELETE /api/v1/subscriptions/{id}", adminAccess, a.deleteSubscription)
-	a.handle("POST /api/v1/subscriptions/{id}/rotate-token", adminAccess, a.rotateSubscriptionToken)
 	a.handle("GET /api/v1/subscriptions/{id}/render", memberAccess, a.renderSubscription)
 	a.handle("GET /api/v1/subscriptions/{id}/access-log", adminAccess, a.subscriptionAccessLog)
 
 	// templates & presets
-	a.handle("GET /api/v1/templates", memberAccess, a.listTemplates)
-	a.handle("POST /api/v1/templates", adminAccess, a.createTemplate)
-	a.handle("PUT /api/v1/templates/{id}", adminAccess, a.updateTemplate)
-	a.handle("DELETE /api/v1/templates/{id}", adminAccess, a.deleteTemplate)
-	a.handle("GET /api/v1/presets", memberAccess, a.listPresets)
-	a.handle("POST /api/v1/presets", adminAccess, a.createPreset)
-	a.handle("PUT /api/v1/presets/{id}", adminAccess, a.updatePreset)
-	a.handle("DELETE /api/v1/presets/{id}", adminAccess, a.deletePreset)
 
 	// rule sets
 	a.handle("GET /api/v1/rulesets", adminAccess, a.listRulesets)

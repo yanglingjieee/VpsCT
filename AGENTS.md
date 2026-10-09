@@ -50,7 +50,11 @@
 | `internal/liveproto`、`internal/agentlive`、`internal/live` | 实时通道：消息格式、agent 端的子进程（采样和 TCP 探测）、控制端的 Hub（内存里的现状、按分钟落库）；`internal/hostmetrics` 是读 `/proc` 的公共代码 |
 | `internal/report` | Telegram 推送：每件事从发生到解决各说一次（`incidents` 表记着说过什么），以及日报。只推送，不接收消息 |
 
-上游的出口、转发、托管中转、模板、预设、多账号等后端代码仍在仓库里但没有界面入口，也没有被本分支的功能依赖。改动时不必为它们加新功能；要删就连同测试一起删干净。
+上游的模板、分组预设、从节点库生成的订阅、转存的外部订阅、链式节点、Surge 和 sing-box 客户端配置在 v0.4.1 删掉了（`rule_templates`、`proxy_group_presets` 两张表留着但清空，因为 `shares` 里有一列引用前者，SQLite 删不掉）。`subscription.SingBoxOutbound` 只给集成测试用：让官方 sing-box 客户端去连 agent 建的入站。
+
+还在仓库里、没有界面入口的上游功能：面板多账号（`/api/v1/users`，很多权限测试靠它建普通账号）、出口 / 固定转发 / 托管中转 / 网卡计费 / 节点自定义监听（`internal/networkconfig`、`networkguard`、`netinventory`、`store/transit.go` 等，agent 协议里也有）、Snell / mieru / WireGuard 入站、分享的“专属入口”（`ShareTarget`）。它们和 agent、CI 的集成测试（`scripts/network-systemd-test`）连在一起，要删就单独发一版，连同 agent 协议、数据库表和集成测试一起删干净，不要只删接口。改动时不必为它们加新功能。
+
+提交前除了 `go test ./...`，还要跑 `GOOS=linux go vet ./...`：`scripts/` 下的集成测试只在 Linux 上编译，本机默认检查不到（v0.4.0 第一次构建就是这样失败的）。
 
 前端改完要 `cd web && npm run typecheck && npm run build`，再编 `ctlvpsd` 才进二进制。验证：`bash scripts/check.sh`；CI（`.github/workflows/ci.yml`）还会跑容器里的安装、卸载、升级、真实 agent 和真实浏览器检查，以 CI 为准。
 

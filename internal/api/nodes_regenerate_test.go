@@ -43,8 +43,6 @@ func TestBulkRegenerateNodes(t *testing.T) {
 	revoked.Revoked = true
 	revoked = add(revoked)
 	chain := add(domain.Node{Name: "chain", Source: domain.NodeChain, Server: n1.Server, Port: n1.Port, Protocol: n1.Protocol, Params: n1.Params, ChainFrontNodeID: &n2.ID})
-	sub := c.do("POST", "/api/v1/subscriptions", map[string]any{"name": "stable", "kind": "generated", "node_selection": map[string]any{"include_all": true}}, 201)
-	oldSub, _ := st.GetSubscription(ctx, int64(sub["id"].(float64)))
 	before, _ := st.LatestDesiredState(ctx, sid)
 	out := c.do("POST", "/api/v1/nodes/bulk-regenerate", map[string]any{"ids": []int64{n1.ID, n2.ID, n1.ID, manual.ID, imported.ID, revoked.ID, chain.ID, 999999}}, 200)
 	if out["rotated"] != float64(2) {
@@ -76,10 +74,6 @@ func TestBulkRegenerateNodes(t *testing.T) {
 		if got.Name != old.Name || got.Port != old.Port || got.Enabled != old.Enabled {
 			t.Fatal("rotation changed node identity/state")
 		}
-	}
-	newSub, _ := st.GetSubscription(ctx, oldSub.ID)
-	if newSub.Token != oldSub.Token || newSub.ShortCode != oldSub.ShortCode {
-		t.Fatal("subscription links changed")
 	}
 	newRevoked, _ := st.GetNode(ctx, revoked.ID)
 	if !bytes.Equal(newRevoked.Params, revoked.Params) || !newRevoked.Revoked {

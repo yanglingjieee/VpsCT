@@ -148,9 +148,6 @@ func run(cfg config.Config, logger *slog.Logger) error {
 
 	subs := subscription.NewService(st)
 	subs.Fetcher.Client = safehttp.New(safehttp.Options{HTTPOrigins: cfg.SubscriptionHTTPOrigins, PrivateOrigins: cfg.SubscriptionPrivateOrigins})
-	if err := subs.Seed(ctx); err != nil {
-		return fmt.Errorf("seed templates: %w", err)
-	}
 	des := desired.New(st)
 	tg := notify.New(func(ctx context.Context) (string, string) {
 		return st.GetSetting(ctx, domain.SettingTelegramToken, ""), st.GetSetting(ctx, domain.SettingTelegramChatID, "")

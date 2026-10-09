@@ -309,18 +309,18 @@ type ExternalSubscription struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
-// SubscriptionKind distinguishes how a subscription's content is produced.
+// SubscriptionKind says what a subscription record is the link of. Only a
+// user's link exists now; records of the kinds the panel once had (built from
+// a selection of nodes, or mirroring an external subscription) are kept but
+// answer nothing.
 type SubscriptionKind string
 
-const (
-	SubImported  SubscriptionKind = "imported"  // mirrors an external subscription (live aggregate)
-	SubGenerated SubscriptionKind = "generated" // built from nodes + groups + rules + template
-	SubShare     SubscriptionKind = "share"     // owned by a share; nodes come from the share
-)
+// SubShare is a user's link: the profile is built from that user's lines.
+const SubShare SubscriptionKind = "share"
 
 // Supported reports whether this subscription kind can still produce content.
 func (k SubscriptionKind) Supported() bool {
-	return k == SubGenerated || k == SubImported || k == SubShare
+	return k == SubShare
 }
 
 // ProxyGroup is one policy group of a generated subscription.
@@ -404,30 +404,6 @@ type Subscription struct {
 	LastAccessAt      *time.Time       `json:"last_access_at,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
 	UpdatedAt         time.Time        `json:"updated_at"`
-}
-
-// RuleTemplate is a client configuration template with ctlvps markers.
-type RuleTemplate struct {
-	ID          int64           `json:"id"`
-	Name        string          `json:"name"`
-	Kind        string          `json:"kind"` // mihomo|surge|singbox|shadowrocket
-	Description string          `json:"description"`
-	Content     string          `json:"content"`
-	Variables   json.RawMessage `json:"variables,omitempty"`
-	IsBuiltin   bool            `json:"is_builtin"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-}
-
-// ProxyGroupPreset is a reusable group layout for the generator.
-type ProxyGroupPreset struct {
-	ID        int64        `json:"id"`
-	Name      string       `json:"name"`
-	Groups    []ProxyGroup `json:"groups"`
-	Rules     []string     `json:"rules"`
-	IsBuiltin bool         `json:"is_builtin"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 // ShareStatus is the lifecycle of a share.

@@ -20,14 +20,6 @@ func RenderRaw(b *Bundle, plain bool) (*Rendered, error) {
 			lines = append(lines, uri)
 		}
 	}
-	// Chains cannot be expressed in share links; export the landing node only
-	// under the chain name so the user still sees it.
-	for _, c := range b.Chains {
-		p := c.Proxy
-		if uri, err := proxynode.ToURI(p); err == nil {
-			lines = append(lines, uri)
-		}
-	}
 	body := strings.Join(lines, "\n") + "\n"
 	if plain {
 		return &Rendered{Body: []byte(body), ContentType: "text/plain; charset=utf-8", Filename: b.Name + ".txt", Format: FormatURIList}, nil

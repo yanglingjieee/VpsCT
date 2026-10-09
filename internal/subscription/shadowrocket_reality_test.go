@@ -6,11 +6,7 @@ import (
 )
 
 func TestShadowrocketNativeRealityParameters(t *testing.T) {
-	rendered, err := RenderShadowrocket(sampleBundle())
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := string(rendered.Body)
+	body := ShadowrocketProxyLine(sampleBundle().Proxies[0])
 	for _, want := range []string{"pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "sid=ab", "fp=chrome", "peer=www.apple.com", "flow=xtls-rprx-vision"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing native Shadowrocket field %s", want)

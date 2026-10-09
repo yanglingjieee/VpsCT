@@ -271,72 +271,16 @@ export interface ExternalSubscription {
   created_at: string;
 }
 
-export type GroupType = "select" | "url-test" | "fallback" | "load-balance" | "relay";
-
-export interface ProxyGroup {
-  name: string;
-  type: GroupType;
-  proxies: string[];
-  node_ids?: number[];
-  include_all?: boolean;
-  filter?: string;
-  exclude_filter?: string;
-  url?: string;
-  interval?: number;
-  tolerance?: number;
-  lazy?: boolean;
-  strategy?: string;
-  icon?: string;
-  hidden?: boolean;
-  dialer_proxy?: string;
-  disable_udp?: boolean;
-}
-
-/** Normalize groups coming from the API/presets: Go may serialize an empty
- *  member list as `null`, and the editor relies on `proxies` being an array. */
-export function normalizeGroups(groups?: ProxyGroup[] | null): ProxyGroup[] {
-  return (groups ?? []).map((g) => ({ ...g, proxies: Array.isArray(g.proxies) ? g.proxies : [] }));
-}
-
-export interface ChainSpec {
-  name: string;
-  front_node_id: number;
-  landing_node_id: number;
-}
-
-export interface NodeSelection {
-  include_all?: boolean;
-  node_ids: number[];
-  external_sub_ids: number[];
-  tags?: string[];
-  filter?: string;
-  exclude_filter?: string;
-}
-
+/** The record behind a user's link. */
 export interface Subscription {
   id: number;
   name: string;
-  kind: string; // Supported kinds: generated, imported, share; legacy rows may differ.
-  supported?: boolean;
   token: string;
   token_hint: string;
   short_code: string;
-  template_id?: number | null;
   default_format: string;
-  proxy_groups: ProxyGroup[];
-  chains: ChainSpec[];
-  rules: string[];
-  rule_providers?: Record<string, unknown>;
-  node_selection: NodeSelection;
-  source_external_id?: number | null;
   expire_at?: string | null;
-  traffic_limit_bytes: number;
-  reset_day: number;
-  next_reset?: string | null;
   userinfo_header: boolean;
-  show_info_nodes: boolean;
-  owner_user_id: number;
-  allowed_user_ids: number[];
   share_id?: number | null;
   enabled: boolean;
   access_count: number;
@@ -346,25 +290,6 @@ export interface Subscription {
   links: Record<string, string>;
   short_link?: string;
   node_count: number;
-  share_name?: string;
-}
-
-export interface RuleTemplate {
-  id: number;
-  name: string;
-  kind: "mihomo" | "surge" | "singbox" | "shadowrocket";
-  description: string;
-  content: string;
-  variables?: Record<string, unknown>;
-  is_builtin: boolean;
-}
-
-export interface Preset {
-  id: number;
-  name: string;
-  groups: ProxyGroup[];
-  rules: string[];
-  is_builtin: boolean;
 }
 
 export interface ShareTarget {

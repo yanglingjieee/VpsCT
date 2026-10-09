@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
-
-	"ctlvps/internal/domain"
 )
 
 const sampleRules = `# 白名单：国内直连，其余走所选线路
@@ -29,12 +27,7 @@ func TestOneRuleSetForEveryClient(t *testing.T) {
 	site := "https://panel.example.com"
 	render := func(kind string, b *Bundle) string {
 		t.Helper()
-		profile, err := Profile(kind, sampleRules, "🥔 我的线路", site+"/")
-		if err != nil {
-			t.Fatal(err)
-		}
-		b.Template = &domain.RuleTemplate{Kind: kind, Content: profile}
-		r, err := RenderBundle(b, kind)
+		r, err := RenderProfile(b, kind, sampleRules, "🥔 我的线路", site+"/")
 		if err != nil {
 			t.Fatal(err)
 		}

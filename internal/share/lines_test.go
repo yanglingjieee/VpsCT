@@ -189,8 +189,8 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 		return string(r.Body), b
 	}
 	body, b := render(yang, subscription.FormatMihomo)
-	if strings.Join(b.AllProxyNames(), "|") != "ATT via VMISS|VMISS|ATT via HK" || len(b.Chains) != 0 {
-		t.Fatalf("menu order: %v, chains %d", b.AllProxyNames(), len(b.Chains))
+	if strings.Join(b.AllProxyNames(), "|") != "ATT via VMISS|VMISS|ATT via HK" {
+		t.Fatalf("menu order: %v", b.AllProxyNames())
 	}
 	for _, want := range []string{uuidOf(t, ym["ATT via VMISS"]), uuidOf(t, ym["VMISS"]), uuidOf(t, ym["ATT via HK"]), "server: 1.2.3.4", "server: 8.0.0.1"} {
 		if !strings.Contains(body, want) {

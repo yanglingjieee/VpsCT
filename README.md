@@ -166,7 +166,7 @@ sudo bash /usr/local/libexec/ctlvps-agent-uninstall.sh --agent --dry-run
 | 需要做什么 | 查看文档 |
 |---|---|
 | 配置网卡、计费接口、出口与 VPS 中转 | [网络与中转使用指南](docs/network.md) |
-| 选择订阅格式、模板与客户端 | [节点、订阅与分享](docs/subscriptions.md) |
+| 用户的链接给各种客户端什么、规则怎么写 | [用户的链接、线路和规则](docs/subscriptions.md) |
 | 选择其他安装方式、修改配置或恢复数据 | [安装、升级与恢复](docs/operations.md) |
 | 了解数据采集与隐私设置 | [隐私说明](docs/privacy.md) |
 | 查看版本变化与待发布内容 | [变更记录](CHANGELOG.md) |

@@ -16,12 +16,16 @@ import (
 func TestSubscriptionBrowserAccess(t *testing.T) {
 	c := newTestAPI(t)
 	token := auth.NewSubscriptionToken()
-	sub := domain.Subscription{Name: "browser-test", Kind: domain.SubGenerated, Enabled: true, Token: token, TokenHash: auth.HashToken(token), ShortCode: "browser-test-short", DefaultFormat: "mihomo", NodeSelection: domain.NodeSelection{IncludeAll: true}}
+	sh := domain.Share{Name: "browser-test", Status: domain.ShareActive}
+	if err := c.api.Store.CreateShare(context.Background(), &sh); err != nil {
+		t.Fatal(err)
+	}
+	sub := domain.Subscription{Name: "browser-test", Kind: domain.SubShare, ShareID: &sh.ID, Enabled: true, Token: token, TokenHash: auth.HashToken(token), ShortCode: "browser-test-short", DefaultFormat: "mihomo"}
 	if err := c.api.Store.CreateSubscription(context.Background(), &sub); err != nil {
 		t.Fatal(err)
 	}
 	requestIndex := 0
-	for _, path := range []string{"/s/" + token, "/s/" + token + "/mihomo", "/s/" + token + "?format=surge", "/r/browser-test-short", "/r/browser-test-short?format=surge"} {
+	for _, path := range []string{"/s/" + token, "/s/" + token + "/mihomo", "/s/" + token + "?format=shadowrocket", "/r/browser-test-short", "/r/browser-test-short?format=shadowrocket"} {
 		for _, tc := range []struct {
 			name, ua, mode, dest string
 			browser              bool

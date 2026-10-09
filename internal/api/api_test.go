@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,9 +46,6 @@ func newTestAPI(t *testing.T) *client {
 	}
 	t.Cleanup(func() { cl.Close() })
 	subs := subscription.NewService(st)
-	if err := subs.Seed(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	des := desired.New(st)
 	a := New(Deps{Store: st, Connlog: cl, Subs: subs, Desired: des, Shares: share.New(st, des), Traffic: traffic.New(st),
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Config: Config{SetupToken: testSetupToken, DataDir: dir, Version: "test", StartedAt: time.Now()}})
@@ -243,14 +239,14 @@ func TestEndToEnd(t *testing.T) {
 	if ui := resp.Header.Get("Subscription-Userinfo"); !strings.Contains(ui, "total=1000") {
 		t.Fatalf("userinfo: %q", ui)
 	}
-	// UA detection
+	// A client the panel builds no profile for gets the Clash one.
 	req, _ = http.NewRequest("GET", c.srv.URL+"/s/"+token, nil)
 	req.Header.Set("User-Agent", "Surge iOS/3000")
 	resp, _ = http.DefaultClient.Do(req)
 	body, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if strings.Contains(string(body), "proxies:") || strings.Contains(string(body), "mixed-port:") {
-		t.Fatalf("surge detection failed: %s", body[:min(len(body), 200)])
+	if !strings.Contains(string(body), "proxies:") || !strings.Contains(string(body), "mixed-port:") {
+		t.Fatalf("an unknown client gets the Clash profile: %s", body[:min(len(body), 200)])
 	}
 	// Shadowrocket prints the usage header as it is, so it gets sizes, not byte counts.
 	req, _ = http.NewRequest("GET", c.srv.URL+"/s/"+token, nil)
@@ -282,44 +278,10 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("ban: %d", resp.StatusCode)
 	}
 
-	// generated subscription with import + preview
+	// nodes can be imported from share links
 	imp := c.do("POST", "/api/v1/nodes/import", map[string]any{"text": "ss://YWVzLTI1Ni1nY206cGFzcw==@1.2.3.4:8388#JP-1\ntrojan://pw@jp.example.com:443?sni=jp.example.com#JP-2"}, 200)
 	if len(imp["created"].([]any)) != 2 {
 		t.Fatalf("import: %v", imp)
-	}
-	gen := c.do("POST", "/api/v1/subscriptions", map[string]any{"name": "mine", "kind": "generated",
-		"node_selection": map[string]any{"include_all": true},
-		"proxy_groups":   []map[string]any{{"name": "PROXY", "type": "select", "include_all": true}},
-		"rules":          []string{"MATCH,PROXY"}}, 201)
-	if gen["node_count"].(float64) < 3 {
-		t.Fatalf("generated node count: %v", gen["node_count"])
-	}
-	c.do("PUT", fmt.Sprintf("/api/v1/subscriptions/%v", gen["id"]), map[string]any{"traffic_limit_bytes": 1000}, 200)
-	renamed := c.do("PUT", fmt.Sprintf("/api/v1/subscriptions/%v", gen["id"]), map[string]any{"name": "renamed-mine"}, 200)
-	if renamed["name"] != "renamed-mine" {
-		t.Fatalf("rename: %v", renamed["name"])
-	}
-	if renamed["traffic_limit_bytes"].(float64) != 1000 {
-		t.Fatalf("rename must not wipe traffic limit: %v", renamed["traffic_limit_bytes"])
-	}
-	cycled := c.do("PUT", fmt.Sprintf("/api/v1/subscriptions/%v", gen["id"]), map[string]any{"reset_day": 1}, 200)
-	if cycled["reset_day"].(float64) != 1 || cycled["next_reset"] == nil {
-		t.Fatalf("reset_day: %v next_reset=%v", cycled["reset_day"], cycled["next_reset"])
-	}
-	req, _ = http.NewRequest("GET", c.srv.URL+"/s/"+cycled["token"].(string), nil)
-	resp, _ = http.DefaultClient.Do(req)
-	body, _ = io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Subscription-Userinfo"), "expire=") {
-		t.Fatalf("cycled sub userinfo: %d %q %s", resp.StatusCode, resp.Header.Get("Subscription-Userinfo"), body[:min(len(body), 120)])
-	}
-	links := gen["links"].(map[string]any)
-	if !strings.Contains(links["singbox"].(string), "/s/") {
-		t.Fatal("links")
-	}
-	rendered := c.do("GET", fmt.Sprintf("/api/v1/subscriptions/%v/render?format=singbox", gen["id"]), nil, 200)
-	if !strings.Contains(rendered["body"].(string), `"outbounds"`) {
-		t.Fatal("singbox render")
 	}
 	// normal user cannot see admin resources
 	c.do("POST", "/api/v1/users", map[string]any{"username": "bob", "password": "password123", "role": "user"}, 201)
@@ -328,8 +290,8 @@ func TestEndToEnd(t *testing.T) {
 	c.do("GET", "/api/v1/servers", nil, 401)
 	c.do("POST", "/api/v1/auth/login", map[string]any{"username": "bob", "password": "password123"}, 200)
 	c.do("GET", "/api/v1/servers", nil, 403)
-	if l := c.do("GET", "/api/v1/subscriptions", nil, 200)["list"].([]any); len(l) != 0 {
-		t.Fatalf("bob should see no subscriptions, got %d", len(l))
+	if l := c.do("GET", "/api/v1/shares", nil, 200)["list"].([]any); len(l) != 0 {
+		t.Fatalf("bob should see nobody's links, got %d", len(l))
 	}
 	dash := c.do("GET", "/api/v1/dashboard", nil, 200)
 	if _, ok := dash["counts"]; ok {

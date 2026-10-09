@@ -4,12 +4,13 @@ package main
 
 import (
 	"context"
-	"ctlvps/internal/auth"
 	"ctlvps/internal/desired"
 	"ctlvps/internal/domain"
 	"ctlvps/internal/networkconfig"
+	"ctlvps/internal/proxynode"
 	"ctlvps/internal/share"
 	"ctlvps/internal/store"
+	"ctlvps/internal/subscription"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,8 +25,6 @@ func testSubscriptionClients(ctx context.Context, st *store.Store, d *desired.Bu
 	run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=www.sony.com", "-addext", "subjectAltName=DNS:www.sony.com,DNS:reality.fixture", "-keyout", "/tmp/sub-reality.key", "-out", "/tmp/sub-reality.crt")
 	stopTLS := process(ctx, "ip", "netns", "exec", "landing", "openssl", "s_server", "-accept", "203.0.113.10:443", "-key", "/tmp/sub-reality.key", "-cert", "/tmp/sub-reality.crt", "-tls1_3", "-alpn", "h2", "-www")
 	defer stopTLS()
-	tpl := domain.RuleTemplate{Name: "offline subscription qualification", Kind: "singbox", Content: `{"log":{"level":"error"},"inbounds":[{"type":"socks","listen":"127.0.0.1","listen_port":1080}],"outbounds":[{"type":"selector","tag":"selection","outbounds":["{{all}}"]},{"type":"direct","tag":"direct"}],"route":{"final":"selection"}}`}
-	must(st.CreateTemplate(ctx, &tpl))
 	protocols := []string{"ss", "vless", "trojan", "anytls", "hysteria2", "tuic", "wireguard"}
 	ids := []int64{}
 	for i, p := range protocols {
@@ -33,9 +32,6 @@ func testSubscriptionClients(ctx context.Context, st *store.Store, d *desired.Bu
 		admin.request("POST", fmt.Sprintf("/api/v1/servers/%d/nodes", server.ID), map[string]any{"protocol": p, "name": "ordinary-" + p, "port": 25400 + i, "sni": "reality.fixture"}, 201, &n)
 		ids = append(ids, n.ID)
 	}
-	token := auth.NewSubscriptionToken()
-	sub := domain.Subscription{Name: "generated fixture", Kind: domain.SubGenerated, Enabled: true, Token: token, TokenHash: auth.HashToken(token), TemplateID: &tpl.ID, NodeSelection: domain.NodeSelection{NodeIDs: ids}}
-	must(st.CreateSubscription(ctx, &sub))
 	sh := domain.Share{Name: "all protocols share", Targets: []domain.ShareTarget{{ServerID: server.ID, Protocols: protocols}}}
 	shareToken, e := shares.Create(ctx, &sh)
 	must(e)
@@ -55,59 +51,44 @@ func testSubscriptionClients(ctx context.Context, st *store.Store, d *desired.Bu
 	must(e)
 	rec, e := st.LatestDesiredState(ctx, server.ID)
 	must(e)
-	eventually("all generated and shared inbounds applied", func() bool {
+	eventually("all inbounds applied", func() bool {
 		a, e := st.GetAgentByServer(ctx, server.ID)
 		return e == nil && a.ApplyError == "" && a.AppliedRevision == rec.Revision
 	})
-	// A user's profile is built from their rule set, for Clash and
-	// Shadowrocket; the sing-box client is driven from the generated one.
-	for _, source := range []struct{ kind, token string }{{"generated", token}} {
-		response, e := apiServer.Client().Get(apiServer.URL + "/s/" + source.token + "/singbox")
+	// The official sing-box client is given each inbound as a user's profile
+	// would carry it.
+	for i, id := range ids {
+		n, e := st.GetNode(ctx, id)
 		must(e)
-		body, e := io.ReadAll(response.Body)
-		response.Body.Close()
-		must(e)
-		if response.StatusCode != 200 {
-			panic("public subscription failed")
+		protocol := protocols[i]
+		p := proxynode.FromDomain(n)
+		doc := map[string]any{
+			"log":      map[string]any{"level": "error"},
+			"inbounds": []any{map[string]any{"type": "socks", "listen": "127.0.0.1", "listen_port": 1080}},
+			"route":    map[string]any{"final": p.Name},
 		}
-		var original map[string]any
-		must(json.Unmarshal(body, &original))
-		tags := map[string]string{}
-		for _, o := range original["outbounds"].([]any) {
-			m := o.(map[string]any)
-			typ := m["type"].(string)
-			if typ != "selector" && typ != "direct" && typ != "urltest" {
-				tags[m["tag"].(string)] = typ
+		direct := map[string]any{"type": "direct", "tag": "direct"}
+		if ep, ok := subscription.SingBoxEndpoint(p, ""); ok {
+			doc["endpoints"], doc["outbounds"] = []any{ep}, []any{direct}
+		} else if out, ok := subscription.SingBoxOutbound(p, ""); ok {
+			doc["outbounds"] = []any{out, direct}
+		} else {
+			panic("no sing-box client for " + protocol)
+		}
+		path := "/tmp/subscription-runtime.json"
+		writeJSON(path, doc)
+		run("/opt/ctlvps/bin/sing-box", "check", "-c", path)
+		stop := process(ctx, "ip", "netns", "exec", "landing", "/opt/ctlvps/bin/sing-box", "run", "-c", path)
+		eventually(protocol+" official client", func() bool { got, e := probe(0, "tcp", "203.0.113.10"); return e == nil && got == "192.0.2.1" })
+		for _, transport := range []string{"tcp", "udp", "greeting"} {
+			got, e := probe(0, transport, "203.0.113.10")
+			if e != nil || got != "192.0.2.1" {
+				stop()
+				panic(fmt.Sprintf("official client %s %s failed", protocol, transport))
 			}
 		}
-		if endpoints, ok := original["endpoints"].([]any); ok {
-			for _, o := range endpoints {
-				m := o.(map[string]any)
-				tags[m["tag"].(string)] = m["type"].(string)
-			}
-		}
-		if len(tags) != len(protocols) {
-			panic("subscription lost a supported protocol")
-		}
-		for tag, protocol := range tags {
-			var doc map[string]any
-			must(json.Unmarshal(body, &doc))
-			doc["route"].(map[string]any)["final"] = tag
-			path := "/tmp/subscription-runtime.json"
-			writeJSON(path, doc)
-			run("/opt/ctlvps/bin/sing-box", "check", "-c", path)
-			stop := process(ctx, "ip", "netns", "exec", "landing", "/opt/ctlvps/bin/sing-box", "run", "-c", path)
-			eventually(source.kind+" "+protocol+" exported client", func() bool { got, e := probe(0, "tcp", "203.0.113.10"); return e == nil && got == "192.0.2.1" })
-			for _, transport := range []string{"tcp", "udp", "greeting"} {
-				got, e := probe(0, transport, "203.0.113.10")
-				if e != nil || got != "192.0.2.1" {
-					stop()
-					panic(fmt.Sprintf("exported %s %s %s failed", source.kind, protocol, transport))
-				}
-			}
-			stop()
-			fmt.Println("PASS public", source.kind, "template -> official client ->", protocol, "TCP/UDP/server-first")
-		}
+		stop()
+		fmt.Println("PASS inbound -> official client ->", protocol, "TCP/UDP/server-first")
 	}
 	must(shares.Pause(ctx, sh.ID))
 	response, e := apiServer.Client().Get(apiServer.URL + "/s/" + shareToken + "/uri")

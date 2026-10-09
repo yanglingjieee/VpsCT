@@ -51,28 +51,20 @@ func TestExternalMetadataIsNotAProxy(t *testing.T) {
 	if e = st.CreateShare(ctx, &sh); e != nil {
 		t.Fatal(e)
 	}
-	subs := []domain.Subscription{
-		{Kind: domain.SubGenerated, NodeSelection: domain.NodeSelection{IncludeAll: true}},
-		{Kind: domain.SubImported, SourceExternalID: &ext.ID},
-		{Kind: domain.SubShare, ShareID: &sh.ID},
-		{Kind: domain.SubGenerated, NodeSelection: domain.NodeSelection{NodeIDs: []int64{nodes[0].ID}}, Chains: []domain.ChainSpec{{FrontNodeID: legacy.ID, LandingNodeID: nodes[0].ID}}},
+	b, e := svc.Build(ctx, domain.Subscription{Kind: domain.SubShare, ShareID: &sh.ID})
+	if e != nil {
+		t.Fatal(e)
 	}
-	for _, sub := range subs {
-		b, e := svc.Build(ctx, sub)
+	if len(b.Proxies) != 1 {
+		t.Fatalf("a user's profile includes metadata: %d proxies", len(b.Proxies))
+	}
+	for _, kind := range ProfileKinds {
+		r, e := RenderProfile(b, kind, "MATCH,PROXY\n", "", "https://panel.example.test")
 		if e != nil {
 			t.Fatal(e)
 		}
-		if len(b.Proxies) != 1 || len(b.Chains) != 0 {
-			t.Fatalf("%s includes metadata: proxies=%d chains=%d", sub.Kind, len(b.Proxies), len(b.Chains))
-		}
-		for _, format := range KnownFormats {
-			r, e := RenderBundle(b, format)
-			if e != nil {
-				t.Fatal(e)
-			}
-			if strings.Contains(string(r.Body), info.Name) {
-				t.Fatalf("metadata in %s", format)
-			}
+		if strings.Contains(string(r.Body), info.Name) {
+			t.Fatalf("metadata in %s", kind)
 		}
 	}
 	if _, e = st.GetNode(ctx, legacy.ID); e != nil {
