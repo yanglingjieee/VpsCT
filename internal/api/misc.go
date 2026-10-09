@@ -223,8 +223,8 @@ var editableSettings = map[string]bool{
 	domain.SettingConnlogRetention: true, domain.SettingAggRetention: true, domain.SettingConnlogSelf: true, domain.SettingSampleRetention: true, domain.SettingHourlyRetention: true,
 	domain.SettingAccessRetention: true, domain.SettingAgentOfflineSec: true, domain.SettingQuotaAlertPct: true, domain.SettingQuotaTimezone: true,
 	domain.SettingSingBoxVersion: true, domain.SettingSnellVersion: true, domain.SettingMitaVersion: true, "core.mita_sha256": true, domain.SettingRateLimitPerMin: true,
-	"core.singbox_sha256": true, "core.snell_sha256": true, "site.default_template_id": true,
-	domain.SettingDefaultRuleset: true, domain.SettingRenewAlertDays: true, domain.SettingTelegramQuality: true,
+	"core.singbox_sha256": true, "core.snell_sha256": true,
+	domain.SettingRenewAlertDays: true, domain.SettingTelegramQuality: true,
 }
 
 // SettingDefaults are returned when unset.

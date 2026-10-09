@@ -823,4 +823,14 @@ ALTER TABLE rulesets DROP COLUMN singbox;`,
 	// shares still names rule_templates in a column SQLite cannot drop.
 	`DELETE FROM rule_templates;
 DELETE FROM proxy_group_presets;`,
+	// v42: the panel has one set of rules, for every user. Of several, the
+	// one most users had is kept (then the first in the menu); nobody is
+	// without rules any more, and nothing is "the default" among them.
+	`DELETE FROM rulesets WHERE id NOT IN (
+  SELECT r.id FROM rulesets r
+  ORDER BY (SELECT COUNT(*) FROM shares s WHERE s.ruleset_id = r.id AND s.status != 'revoked') DESC, r.sort_order, r.id LIMIT 1);
+UPDATE shares SET ruleset_id = NULL;
+ALTER TABLE rulesets DROP COLUMN description;
+ALTER TABLE rulesets DROP COLUMN sort_order;
+DELETE FROM settings WHERE key IN ('rules.default_id', 'site.default_template_id');`,
 }

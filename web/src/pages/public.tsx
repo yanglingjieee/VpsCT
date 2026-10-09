@@ -91,7 +91,7 @@ export function PersonalPageView() {
         <>
           <Card className="mt-4 p-5">
             <h2 className="font-medium">一键导入</h2>
-            <p className="mt-1 text-xs text-muted-foreground">在装好客户端的设备上打开这个页面，点对应的按钮。线路和规则（{data.rules}）会一起配好；以后有变化，客户端更新配置时就会跟上。</p>
+            <p className="mt-1 text-xs text-muted-foreground">在装好客户端的设备上打开这个页面，点对应的按钮。线路和分流规则会一起配好；以后有变化，客户端更新配置时就会跟上。</p>
             <div className="mt-4 grid gap-2">
               {apps.map((a) => (
                 <a key={a.id} href={a.link(data.url, data.site_name)} className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-accent/40">

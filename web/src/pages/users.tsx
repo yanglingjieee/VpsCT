@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, Ban, Copy, ExternalLink, KeyRound, Pause, Pencil, Play, Plus, QrCode, RotateCcw, ScrollText, Trash2 } from "lucide-react";
 import { del, get, post, put } from "@/lib/api";
-import type { Line, Node, RulesetList, Series, Share, ShareStatus } from "@/lib/types";
+import type { Line, Node, Series, Share, ShareStatus } from "@/lib/types";
 import { bytesToGb, cn, copyText, fmtAgo, fmtBytes, fmtDate, gbToBytes, parseResetDay, PROTOCOL_LABELS, STATUS_LABELS } from "@/lib/utils";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Confirm, Dialog, Empty, Field, Input, PageHeader, Progress, Select, Spinner, Switch, Table, Td, Th, Tr, Textarea } from "@/components/ui";
 import { DateTimeInput, ResetDayInput } from "@/components/datetime-picker";
@@ -28,7 +28,7 @@ export function UserCard({ user }: { user: Share }) {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="break-words font-medium">{user.name}</p>
-            <p className="break-words text-xs text-muted-foreground">{user.line_count} 条线路 · {user.delivery === "nodes" ? "只给节点" : user.ruleset_name}</p>
+            <p className="break-words text-xs text-muted-foreground">{user.line_count} 条线路 · {user.delivery === "nodes" ? "只给节点" : "一键配置"}</p>
           </div>
           <StatusBadge s={user.status} />
         </div>
@@ -82,7 +82,6 @@ interface Form {
   line_mode: "all" | "selected";
   line_ids: number[];
   extra_node_ids: number[];
-  ruleset_id: number;
   quota_gb: string;
   reset_day: string;
   expires_at: string;
@@ -102,32 +101,31 @@ export function UserDialog({ open, onClose, user }: { open: boolean; onClose: ()
   const nav = useNavigate();
   const lines = useQuery({ queryKey: ["lines"], queryFn: () => get<Line[]>("/api/v1/lines"), enabled: open });
   const nodes = useQuery({ queryKey: ["nodes", "plain"], queryFn: () => get<Node[]>("/api/v1/nodes"), enabled: open });
-  const rules = useQuery({ queryKey: ["rulesets"], queryFn: () => get<RulesetList>("/api/v1/rulesets"), enabled: open });
   const [f, setF] = React.useState<Form | null>(null);
   React.useEffect(() => {
     if (!open) { setF(null); return; }
     if (user) {
       setF({
         name: user.name, delivery: user.delivery, line_mode: user.line_mode === "selected" ? "selected" : "all", line_ids: user.line_ids ?? [], extra_node_ids: user.extra_node_ids ?? [],
-        ruleset_id: user.ruleset_id ?? 0, quota_gb: bytesToGb(user.quota_bytes), reset_day: String(user.reset_day ?? 0), expires_at: user.expires_at ? toLocal(user.expires_at) : "",
+        quota_gb: bytesToGb(user.quota_bytes), reset_day: String(user.reset_day ?? 0), expires_at: user.expires_at ? toLocal(user.expires_at) : "",
         connlog_enabled: user.connlog_enabled, notes: user.notes,
       });
-    } else if (rules.data) {
-      setF({ name: "", delivery: "profile", line_mode: "all", line_ids: [], extra_node_ids: [], ruleset_id: rules.data.default_id, quota_gb: "0", reset_day: "1", expires_at: "", connlog_enabled: false, notes: "" });
+    } else {
+      setF({ name: "", delivery: "profile", line_mode: "all", line_ids: [], extra_node_ids: [], quota_gb: "0", reset_day: "1", expires_at: "", connlog_enabled: false, notes: "" });
     }
-  }, [open, user, rules.data]);
+  }, [open, user]);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => (p ? { ...p, [k]: v } : p));
   const save = useMutation({
     mutationFn: () => {
       const body = {
         ...f!, user_id: null, targets: [], billing_mode: "dual", line_ids: f!.line_mode === "selected" ? f!.line_ids : [],
-        ruleset_id: f!.delivery === "nodes" ? 0 : f!.ruleset_id, quota_bytes: gbToBytes(f!.quota_gb), reset_day: parseResetDay(f!.reset_day),
+        quota_bytes: gbToBytes(f!.quota_gb), reset_day: parseResetDay(f!.reset_day),
         expires_at: f!.expires_at ? new Date(f!.expires_at).toISOString() : "0001-01-01T00:00:00Z",
       };
       return user ? put<Share>(`/api/v1/shares/${user.id}`, body) : post<Share>("/api/v1/shares", body);
     },
     onSuccess: (r) => {
-      for (const k of ["shares", "lines", "nodes", "rulesets"]) qc.invalidateQueries({ queryKey: [k] });
+      for (const k of ["shares", "lines", "nodes"]) qc.invalidateQueries({ queryKey: [k] });
       toast.success(user ? "已保存" : "用户已创建");
       onClose();
       if (!user) nav(`/users/${r.id}`);
@@ -159,14 +157,6 @@ export function UserDialog({ open, onClose, user }: { open: boolean; onClose: ()
                   <option value="selected">指定线路</option>
                 </Select>
               </Field>
-              {f.delivery === "profile" && (
-                <Field label="规则">
-                  <Select value={String(f.ruleset_id)} onChange={(e) => set("ruleset_id", Number(e.target.value))}>
-                    <option value="0">无规则（全部走所选线路）</option>
-                    {(rules.data?.list ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </Select>
-                </Field>
-              )}
             </div>
             {f.line_mode === "selected" && (
               !lines.data?.length ? <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">还没有线路，先到「节点」里新建。</p> : (
@@ -289,7 +279,7 @@ export function UserDetailPage() {
       <PageHeader
         back={{ to: "/users", label: "用户" }}
         title={s.name}
-        description={`${s.delivery === "nodes" ? "只给节点" : `一键配置 · ${s.ruleset_name}`} · 创建于 ${fmtDate(s.created_at, false)}${s.notes ? ` · ${s.notes}` : ""}`}
+        description={`${s.delivery === "nodes" ? "只给节点" : "一键配置"} · 创建于 ${fmtDate(s.created_at, false)}${s.notes ? ` · ${s.notes}` : ""}`}
         actions={
           <>
             <StatusBadge s={s.status} />

@@ -23,21 +23,15 @@ type ShareView struct {
 	UserName     string            `json:"user_name,omitempty"`
 	// Link is the user's own address: a page in a browser, a profile in a
 	// client.
-	Link        string       `json:"link,omitempty"`
-	RulesetName string       `json:"ruleset_name"`
-	LineCount   int          `json:"line_count"`
-	Lines       []LineUsage  `json:"lines,omitempty"`
-	Formats     []string     `json:"formats,omitempty"`
-	NodeLinks   []PersonNode `json:"node_links,omitempty"`
+	Link      string       `json:"link,omitempty"`
+	LineCount int          `json:"line_count"`
+	Lines     []LineUsage  `json:"lines,omitempty"`
+	Formats   []string     `json:"formats,omitempty"`
+	NodeLinks []PersonNode `json:"node_links,omitempty"`
 }
 
 func (a *API) shareView(r *http.Request, sh domain.Share, withNodes bool) ShareView {
-	v := ShareView{Share: sh, Usage: a.Shares.UsageOf(sh), RulesetName: "无规则"}
-	if sh.RulesetID != nil {
-		if rs, err := a.Store.GetRuleset(r.Context(), *sh.RulesetID); err == nil {
-			v.RulesetName = rs.Name
-		}
-	}
+	v := ShareView{Share: sh, Usage: a.Shares.UsageOf(sh)}
 	if lines, err := a.Store.ShareLines(r.Context(), sh); err == nil {
 		v.LineCount = len(lines)
 	}
@@ -106,8 +100,7 @@ type shareInput struct {
 	LineMode string  `json:"line_mode"`
 	LineIDs  []int64 `json:"line_ids"`
 	// Delivery: "profile" (one-tap lines + rules) or "nodes" (just the nodes).
-	Delivery  string `json:"delivery"`
-	RulesetID *int64 `json:"ruleset_id"`
+	Delivery string `json:"delivery"`
 }
 
 func (in shareInput) apply(sh *domain.Share) error {
@@ -189,11 +182,6 @@ func (in shareInput) apply(sh *domain.Share) error {
 	default:
 		return httpx.BadRequest("交付方式无效")
 	}
-	if in.RulesetID != nil && *in.RulesetID == 0 {
-		sh.RulesetID = nil
-	} else {
-		sh.RulesetID = in.RulesetID
-	}
 	return nil
 }
 
@@ -205,13 +193,6 @@ func (a *API) createShare(w http.ResponseWriter, r *http.Request) error {
 	sh := domain.Share{}
 	if err := in.apply(&sh); err != nil {
 		return err
-	}
-	if in.RulesetID == nil {
-		if id := int64(a.Store.GetSettingInt(r.Context(), domain.SettingDefaultRuleset, 0)); id > 0 {
-			if _, err := a.Store.GetRuleset(r.Context(), id); err == nil {
-				sh.RulesetID = &id
-			}
-		}
 	}
 	token, err := a.Shares.Create(r.Context(), &sh)
 	if err != nil {

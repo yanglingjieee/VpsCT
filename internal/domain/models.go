@@ -268,25 +268,17 @@ const (
 	DeliveryNodes   = "nodes"
 )
 
-// Ruleset is one set of routing rules, written once for every client: each
-// line says what to match and whether it takes the line the user picked
-// (PROXY), goes straight out (DIRECT) or nowhere (REJECT). The panel builds
-// each client family's profile from it.
-type Ruleset struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Rules       string `json:"rules"`
+// Rules is the panel's one list of routing rules, the same for every user and
+// every client: each line says what to match and whether it takes the line
+// the user picked (PROXY), goes straight out (DIRECT) or nowhere (REJECT).
+// The panel builds each client family's profile from it.
+type Rules struct {
+	Rules string `json:"rules"`
 	// GroupName is what the selector of lines is called in clients that
 	// show one; they remember the user's choice under this name.
 	GroupName string    `json:"group_name"`
-	SortOrder int       `json:"sort_order"`
-	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
-
-// SettingDefaultRuleset is the rule set given to new users (0 = no rules).
-const SettingDefaultRuleset = "rules.default_id"
 
 // ExternalSubscription is an "airport" subscription URL that we pull nodes
 // and subscription-userinfo from.
@@ -436,10 +428,7 @@ type Share struct {
 	LineIDs      []int64       `json:"line_ids"`
 	// Delivery is how the user receives their lines: a one-tap profile
 	// (lines + rules for every client) or just the nodes themselves.
-	Delivery string `json:"delivery"`
-	// RulesetID selects the rules of a profile; nil is the built-in
-	// "no rules" (everything through the chosen line).
-	RulesetID      *int64      `json:"ruleset_id,omitempty"`
+	Delivery       string      `json:"delivery"`
 	QuotaBytes     int64       `json:"quota_bytes"`  // 0 = unlimited
 	BillingMode    string      `json:"billing_mode"` // kept for compat; quota always uses inbound+outbound
 	ResetDay       int         `json:"reset_day"`    // 1..28, or 31 = last day; 0 = never

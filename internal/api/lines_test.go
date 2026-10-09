@@ -110,20 +110,26 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	c.do("PUT", "/api/v1/nodes/"+itoa(member["id"]), map[string]any{"name": "x"}, 400)
 	c.do("POST", "/api/v1/nodes/"+itoa(member["id"])+"/regenerate", nil, 400)
 
-	// Rules: one list for every client. Without a rule set a user gets the
-	// built-in default, where everything but the local network takes the
-	// chosen line.
+	// Rules: the panel has one list, for every user and every client. Until
+	// it is written it is the built-in minimum, where everything but the
+	// local network takes the chosen line.
 	if !strings.Contains(yangBody, "name: 节点选择") || !strings.Contains(yangBody, "MATCH,节点选择") || !strings.Contains(yangBody, "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve") {
-		t.Fatalf("no rules by default:\n%s", yangBody)
+		t.Fatalf("the built-in rules:\n%s", yangBody)
 	}
-	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "rules": "DOMAIN-SUFFIX,cn\n"}, 400)
-	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "rules": "RULE-SET,nonesuch,DIRECT\n"}, 400)
-	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "rules": "MATCH,PROXY\n", "group_name": "DIRECT"}, 400)
-	rules := c.do("POST", "/api/v1/rulesets", map[string]any{"name": "我的规则", "group_name": "我的线路",
-		"rules": "# 国内直连\nDOMAIN-SUFFIX,cn,DIRECT\nRULE-SET,direct,DIRECT\nRULE-SET,cncidr,DIRECT,no-resolve\nRULE-SET,applications,DIRECT\nDOMAIN,ads.example,REJECT\nFINAL,PROXY\n"}, 201)
-	yang = c.do("PUT", "/api/v1/shares/"+itoa(yang["id"]), map[string]any{"name": "YANG", "line_mode": "all", "quota_bytes": 1 << 30, "reset_day": 1, "ruleset_id": rules["id"]}, 200)
-	if yang["ruleset_name"] != "我的规则" || len(yang["formats"].([]any)) != 2 {
-		t.Fatalf("rule set not applied: %v %v", yang["ruleset_name"], yang["formats"])
+	if got := c.do("GET", "/api/v1/rules", nil, 200); got["saved"] != false || got["group_name"] != "节点选择" || !strings.Contains(got["rules"].(string), "MATCH,PROXY") || len(got["lists"].([]any)) < 10 {
+		t.Fatalf("the editor shows what is in effect before anything was saved: %v", got)
+	}
+	c.do("PUT", "/api/v1/rules", map[string]any{"rules": "DOMAIN-SUFFIX,cn\n"}, 400)
+	c.do("PUT", "/api/v1/rules", map[string]any{"rules": "RULE-SET,nonesuch,DIRECT\n"}, 400)
+	c.do("PUT", "/api/v1/rules", map[string]any{"rules": "MATCH,PROXY\n", "group_name": "DIRECT"}, 400)
+	rules := c.do("PUT", "/api/v1/rules", map[string]any{"group_name": "我的线路",
+		"rules": "# 国内直连\nDOMAIN-SUFFIX,cn,DIRECT\nRULE-SET,direct,DIRECT\nRULE-SET,cncidr,DIRECT,no-resolve\nRULE-SET,applications,DIRECT\nDOMAIN,ads.example,REJECT\nFINAL,PROXY\n"}, 200)
+	if rules["saved"] != true || rules["group_name"] != "我的线路" || !strings.HasPrefix(rules["rules"].(string), "# 国内直连\n") {
+		t.Fatalf("saved rules: %v", rules)
+	}
+	yang = c.do("GET", "/api/v1/shares/"+itoa(yang["id"]), nil, 200)
+	if len(yang["formats"].([]any)) != 2 || yang["ruleset_name"] != nil {
+		t.Fatalf("a user has a profile for both client families and no rule set of their own: %v %v", yang["formats"], yang["ruleset_name"])
 	}
 	// The same rules reach both client families, each in its own terms: a
 	// selector of lines for Clash, the line tapped on the home page (PROXY)
@@ -145,23 +151,19 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 			t.Fatalf("clash lacks %q:\n%s", want, clash)
 		}
 	}
-	// Shadowrocket lists the lines on its home page and PROXY is the one
-	// tapped there; a group of the profile's own would ignore that tap.
-	if sr := render(san, "shadowrocket"); !strings.Contains(sr, "直连 = vless, ") || !strings.Contains(sr, "FINAL,PROXY") || strings.Contains(sr, "[Proxy Group]") {
-		t.Fatalf("no-rules shadowrocket:\n%s", sr)
+	// Everybody has the same rules, whenever they were created.
+	if sr := render(san, "shadowrocket"); !strings.Contains(sr, "直连 = vless, ") || !strings.Contains(sr, "DOMAIN,ads.example,REJECT") || strings.Contains(sr, "[Proxy Group]") {
+		t.Fatalf("sansan's shadowrocket:\n%s", sr)
 	}
-	c.do("POST", "/api/v1/rulesets/"+itoa(rules["id"])+"/default", nil, 204)
-	if next := c.do("POST", "/api/v1/shares", map[string]any{"name": "新人", "line_mode": "all"}, 201); next["ruleset_name"] != "我的规则" {
-		t.Fatalf("new users get the default rule set: %v", next["ruleset_name"])
-	}
-	if list := c.do("GET", "/api/v1/rulesets", nil, 200); list["default_id"] != rules["id"] || list["none_users"].(float64) != 1 || list["list"].([]any)[0].(map[string]any)["users"].(float64) != 2 {
-		t.Fatalf("rule set list: %v %v", list["default_id"], list["none_users"])
+	next := c.do("POST", "/api/v1/shares", map[string]any{"name": "新人", "line_mode": "all"}, 201)
+	if body := render(next, "mihomo"); !strings.Contains(body, "name: 我的线路") || !strings.Contains(body, "DOMAIN,ads.example,REJECT") {
+		t.Fatalf("a new user's profile:\n%s", body)
 	}
 
 	// A user's own link: their page in a browser, their profile in a client.
 	token := yang["subscription"].(map[string]any)["token"].(string)
 	page := c.do("GET", "/s/"+token+"?page=1", nil, 200)
-	if page["name"] != "YANG" || page["rules"] != "我的规则" || len(page["lines"].([]any)) != 2 || len(page["formats"].([]any)) != 2 || !strings.HasSuffix(page["url"].(string), "/s/"+token) || page["nodes"] != nil {
+	if page["name"] != "YANG" || page["rules"] != nil || len(page["lines"].([]any)) != 2 || len(page["formats"].([]any)) != 2 || !strings.HasSuffix(page["url"].(string), "/s/"+token) || page["nodes"] != nil {
 		t.Fatalf("personal page: %v", page)
 	}
 	if l := page["lines"].([]any)[1].(map[string]any); l["name"] != "家宽" || l["entry_server"] != "" || l["landing_server"] != nil {
@@ -169,17 +171,19 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	}
 
 	// Carpooling: the same lines handed over as plain nodes, no profile.
-	pool := c.do("POST", "/api/v1/shares", map[string]any{"name": "拼车", "line_mode": "all", "delivery": "nodes", "ruleset_id": rules["id"]}, 201)
+	pool := c.do("POST", "/api/v1/shares", map[string]any{"name": "拼车", "line_mode": "all", "delivery": "nodes"}, 201)
 	links := pool["node_links"].([]any)
 	if len(links) != 2 || !strings.HasPrefix(links[1].(map[string]any)["uri"].(string), "vless://") || !strings.Contains(links[1].(map[string]any)["uri"].(string), "@198.51.100.1:2053") || pool["formats"] != nil {
 		t.Fatalf("a relay line is one node link on its entry: %v", links)
 	}
 	poolToken := pool["subscription"].(map[string]any)["token"].(string)
-	if page = c.do("GET", "/s/"+poolToken+"?page=1", nil, 200); page["delivery"] != "nodes" || len(page["nodes"].([]any)) != 2 || page["rules"] != "无规则" {
+	if page = c.do("GET", "/s/"+poolToken+"?page=1", nil, 200); page["delivery"] != "nodes" || len(page["nodes"].([]any)) != 2 || len(page["formats"].([]any)) != 0 {
 		t.Fatalf("carpool page: %v", page)
 	}
-	if sr := render(pool, "shadowrocket"); !strings.Contains(sr, "FINAL,PROXY") || strings.Contains(sr, "我的线路") {
-		t.Fatal("node-only users never get a rule set")
+	// Should their client ask for a profile after all, it carries the same
+	// rules as everybody's.
+	if sr := render(pool, "shadowrocket"); !strings.Contains(sr, "DOMAIN,ads.example,REJECT") || !strings.Contains(sr, "FINAL,PROXY") {
+		t.Fatalf("a node-only user's profile:\n%s", sr)
 	}
 
 	// Removing a line takes its credentials on both machines.
@@ -187,8 +191,10 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	if got := c.do("GET", "/api/v1/shares/"+itoa(yang["id"]), nil, 200); len(got["nodes"].([]any)) != 1 || len(got["lines"].([]any)) != 1 {
 		t.Fatalf("relay credentials left behind: %v", got["nodes"])
 	}
-	c.do("DELETE", "/api/v1/rulesets/"+itoa(rules["id"]), nil, 204)
-	if got := c.do("GET", "/api/v1/shares/"+itoa(yang["id"]), nil, 200); got["ruleset_name"] != "无规则" {
-		t.Fatalf("a deleted rule set leaves its users without rules: %v", got["ruleset_name"])
+	// Emptying the rules brings the built-in minimum back, under the name
+	// the selector was given.
+	c.do("PUT", "/api/v1/rules", map[string]any{"rules": "", "group_name": "我的线路"}, 200)
+	if body := render(yang, "mihomo"); !strings.Contains(body, "MATCH,我的线路") || !strings.Contains(body, "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve") || strings.Contains(body, "ads.example") {
+		t.Fatalf("emptied rules:\n%s", body)
 	}
 }

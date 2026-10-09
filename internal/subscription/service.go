@@ -176,9 +176,9 @@ func (s *Service) Render(ctx context.Context, sub domain.Subscription, format, s
 	case FormatURIList:
 		r, err = RenderRaw(b, true)
 	default:
-		// A user's profile is built from their rule set, which is one list
-		// of rules for every client, so one link works everywhere.
-		rules, group := s.ShareRules(ctx, *sub.ShareID)
+		// Every profile is built from the panel's one list of rules, so one
+		// link works in every client and all of them change together.
+		rules, group := s.Rules(ctx)
 		r, err = RenderProfile(b, format, rules, group, site)
 	}
 	if err == nil && len(r.Body) > 16<<20 {
@@ -209,16 +209,21 @@ func RenderProfile(b *Bundle, kind, rules, group, site string) (*Rendered, error
 // ProfileKinds lists the client families a profile is built for.
 var ProfileKinds = []string{FormatMihomo, FormatShadowrocket}
 
-// ShareRules returns the rules a user's profile is built from and the name of
-// the selector of lines: their rule set's, or the built-in default when they
-// have none or receive plain nodes.
-func (s *Service) ShareRules(ctx context.Context, shareID int64) (rules, group string) {
-	if sh, err := s.Store.GetShare(ctx, shareID); err == nil && sh.Delivery != domain.DeliveryNodes && sh.RulesetID != nil {
-		if rs, err := s.Store.GetRuleset(ctx, *sh.RulesetID); err == nil && strings.TrimSpace(rs.Rules) != "" {
-			return rs.Rules, rs.GroupName
+// Rules returns the rules every profile is built from and the name of the
+// selector of lines: what was saved in the panel, or the built-in minimum
+// (the local network stays local, everything else takes the chosen line)
+// while nothing was.
+func (s *Service) Rules(ctx context.Context) (rules, group string) {
+	rules, group = ruleset.Default, ruleset.DefaultGroup
+	if saved, err := s.Store.Rules(ctx); err == nil {
+		if strings.TrimSpace(saved.Rules) != "" {
+			rules = saved.Rules
+		}
+		if strings.TrimSpace(saved.GroupName) != "" {
+			group = saved.GroupName
 		}
 	}
-	return ruleset.Default, ruleset.DefaultGroup
+	return rules, group
 }
 
 // ShareFormats lists the client families to offer a user a profile for; none

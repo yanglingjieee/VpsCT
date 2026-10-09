@@ -14,7 +14,7 @@
 | 线路 | 用户在客户端里看到的一个节点：直连一个入站，或入口入站中转到落地入站 | `domain.Line` |
 | 用户 | 一个使用者：线路范围、规则、限额、专属链接 | `domain.Share` 加它关联的 `Subscription` |
 | 用户凭据 | 用户在某条线路的某台机器上的凭据，各自计量 | `domain.Node`，有 `attach_node_id`、`line_id`；落地一侧 `landing=true` |
-| 规则 | 只有一份清单：一行一条“匹配什么 → PROXY / DIRECT / REJECT”，Clash 和小火箭的配置都由它生成 | `domain.Ruleset`（`rules`、`group_name`）；清单的写法和内置默认在 `internal/ruleset`，生成配置在 `subscription.Profile` |
+| 规则 | 整个面板只有一份清单：一行一条“匹配什么 → PROXY / DIRECT / REJECT”，每个用户、Clash 和小火箭的配置都由它生成 | `domain.Rules`（表 `rulesets` 里唯一的一行，`store.Rules` / `SaveRules`）；清单的写法和内置的最简规则在 `internal/ruleset`，生成配置在 `subscription.Profile` |
 
 几条必须保持的性质：
 
@@ -29,7 +29,7 @@
 - **探测目标是面板里的内容**（`probe_targets`），所有服务器都探；只有入口机的结果会触发 Telegram 提醒。
 - **落地要能被入口机确认身份**（`domain.LandingProblem`）：VLESS Reality（公钥）、Shadowsocks 2022（密钥）、Hysteria2（面板签发的证书，`provision.IssueCertificate`，存在入站的 `tls_cert` / `tls_key` 里，DER 的 base64；入口机拿到的是 `RelaySpec.Cert`）。不要为了让某个协议能做落地去加 `insecure`。Hysteria2 落地是给“新建连接会丢包、长连接稳定”的落地机用的：每个用户到落地机只有一条 QUIC 连接。
 - **不回退直连**：分组里没有线路时填 `REJECT`（`subscription.EmptyGroupPolicy`）。
-- **规则只写一份，不按客户端分**（用户 2026-10-09 定的）：不要再给某个客户端加一份手写的配置或模板。客户端之间的差别写在代码里：`subscription.skeletonMihomo` / `skeletonShadowrocket` 是各自的底板（监听、DNS、嗅探），`mihomoProfile` / `shadowrocketProfile` 把同一份清单翻成各自的写法。Clash 里 `PROXY` 是名为 `group_name` 的 select 分组；小火箭里就是 `PROXY` 本身，即首页点中的那条线路，不建分组（分组在另一个页面选，首页点线路对它不起作用，2026-10-09 出过这个故障）。用户没有线路时两边的 `PROXY` 都变成 `REJECT`。
+- **整个面板只有一份规则**（用户 2026-10-09 定的：先是“不按客户端各写一份”，v0.4.0；再是“只维护一个规则，也不用无规则模式了”，v0.4.2）：没有多套规则、没有“无规则”这个选项、没有“默认规则”，用户也不各自选规则；还没写过规则时生效的是内置的最简规则（`ruleset.Default`），规则页显示的就是它。不要把这些加回来，也不要再给某个客户端加一份手写的配置或模板。客户端之间的差别写在代码里：`subscription.skeletonMihomo` / `skeletonShadowrocket` 是各自的底板（监听、DNS、嗅探），`mihomoProfile` / `shadowrocketProfile` 把同一份清单翻成各自的写法。Clash 里 `PROXY` 是名为 `group_name` 的 select 分组；小火箭里就是 `PROXY` 本身，即首页点中的那条线路，不建分组（分组在另一个页面选，首页点线路对它不起作用，2026-10-09 出过这个故障）。用户没有线路时两边的 `PROXY` 都变成 `REJECT`。
 - **分流名单**（`ruleset.Lists`）是 `RULE-SET` 能引用的全部名字，文件由面板域名下的 `/rules/clash/<名字>.yaml`、`/rules/surge/<名字>.list` 提供（部署方每天从 Loyalsoldier/clash-rules 镜像）。加名单要两边一起加。
 - 用户的专属链接是 `/r/<24 位>`：浏览器打开返回前端的个人页（`web/src/pages/public.tsx`，数据来自同一地址加 `?page=1`），客户端打开返回配置。小火箭和 Surge 用地址末段给配置起名，一键导入给它们的是带名字的形式 `/r/<码>/<格式>/<站点名>`（名字只是给客户端看的，服务端不读）；各客户端里配置的名字一律是站点名，不是用户名。
 
@@ -40,7 +40,7 @@
 | `cmd/ctlvpsd` | 控制端：API + 内嵌前端 |
 | `cmd/ctlvps-agent` | VPS 端 |
 | `web/` | React 面板，build 进 `web/dist`，再打进 `ctlvpsd` |
-| `internal/api` | REST / SSE / 公开链接 `/s` `/r`；`lines.go`、`rulesets.go`、`people.go` 是本分支加的 |
+| `internal/api` | REST / SSE / 公开链接 `/s` `/r`；`lines.go`、`rules.go`、`people.go` 是本分支加的 |
 | `internal/share` | 用户（上游叫分享）；`lines.go` 负责按线路发放和回收凭据 |
 | `internal/desired` | 把库里的内容算成下发给 agent 的状态，含中转目标和落地来源限制 |
 | `internal/core/singbox.go` | 生成 sing-box 服务端配置 |

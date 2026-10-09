@@ -121,7 +121,6 @@ type PersonalPage struct {
 	ExpiresAt string             `json:"expires_at,omitempty"`
 	Lines     []LineUsage        `json:"lines"`
 	Formats   []string           `json:"formats"`
-	Rules     string             `json:"rules"`
 	Nodes     []PersonNode       `json:"nodes,omitempty"`
 	// URL is the address clients subscribe to: the one that was opened.
 	URL string `json:"url"`
@@ -134,7 +133,7 @@ func (a *API) personalPage(r *http.Request, sub domain.Subscription, sh domain.S
 		SiteName: a.Store.GetSetting(ctx, domain.SettingSiteName, defaultSiteName),
 		Name:     sh.Name, Status: sh.Status, Delivery: sh.Delivery,
 		Upload: sh.UsedUpload, Download: sh.UsedDownload, Used: u.Used, Quota: sh.QuotaBytes,
-		Lines: a.shareLines(ctx, sh), Formats: a.Subs.ShareFormats(ctx, sh), Rules: "无规则",
+		Lines: a.shareLines(ctx, sh), Formats: a.Subs.ShareFormats(ctx, sh),
 		URL: a.baseURL(r) + r.URL.Path,
 	}
 	// Users see names and totals, not which of the operator's machines
@@ -147,11 +146,6 @@ func (a *API) personalPage(r *http.Request, sub domain.Subscription, sh domain.S
 	}
 	if sh.ExpiresAt != nil {
 		p.ExpiresAt = sh.ExpiresAt.Format("2006-01-02T15:04:05Z07:00")
-	}
-	if sh.RulesetID != nil && sh.Delivery != domain.DeliveryNodes {
-		if rs, err := a.Store.GetRuleset(ctx, *sh.RulesetID); err == nil {
-			p.Rules = rs.Name
-		}
 	}
 	if sh.Delivery == domain.DeliveryNodes && sh.Status == domain.ShareActive {
 		p.Nodes = a.shareNodes(ctx, sub)

@@ -415,11 +415,8 @@ func (a *API) routes() {
 	// templates & presets
 
 	// rule sets
-	a.handle("GET /api/v1/rulesets", adminAccess, a.listRulesets)
-	a.handle("POST /api/v1/rulesets", adminAccess, a.createRuleset)
-	a.handle("PUT /api/v1/rulesets/{id}", adminAccess, a.updateRuleset)
-	a.handle("DELETE /api/v1/rulesets/{id}", adminAccess, a.deleteRuleset)
-	a.handle("POST /api/v1/rulesets/{id}/default", adminAccess, a.setDefaultRuleset)
+	a.handle("GET /api/v1/rules", adminAccess, a.getRules)
+	a.handle("PUT /api/v1/rules", adminAccess, a.putRules)
 
 	// lines
 	a.handle("GET /api/v1/lines", adminAccess, a.listLines)
