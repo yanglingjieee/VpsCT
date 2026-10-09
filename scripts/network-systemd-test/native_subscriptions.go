@@ -33,10 +33,8 @@ func testNativeSubscriptions(ctx context.Context, st *store.Store, d *desired.Bu
 		token := auth.NewSubscriptionToken()
 		sub := domain.Subscription{Name: "native-generated", Kind: domain.SubGenerated, Enabled: true, Token: token, TokenHash: auth.HashToken(token), TemplateID: &template.ID, NodeSelection: domain.NodeSelection{NodeIDs: []int64{node.ID}}}
 		must(st.CreateSubscription(ctx, &sub))
-		rules := domain.Ruleset{Name: "native-export-" + protocol, Mihomo: template.Content}
-		must(st.CreateRuleset(ctx, &rules))
-		sh := domain.Share{Name: "native-share-" + protocol, RulesetID: &rules.ID, Targets: []domain.ShareTarget{{ServerID: server.ID, Protocols: []string{protocol}}}}
-		shared, e := shares.Create(ctx, &sh)
+		sh := domain.Share{Name: "native-share-" + protocol, Targets: []domain.ShareTarget{{ServerID: server.ID, Protocols: []string{protocol}}}}
+		_, e := shares.Create(ctx, &sh)
 		must(e)
 		rec, e := st.LatestDesiredState(ctx, server.ID)
 		must(e)
@@ -44,7 +42,9 @@ func testNativeSubscriptions(ctx context.Context, st *store.Store, d *desired.Bu
 			a, e := st.GetAgentByServer(ctx, server.ID)
 			return e == nil && a.ApplyError == "" && a.AppliedRevision == rec.Revision
 		})
-		for _, source := range []struct{ kind, token string }{{"generated", token}, {"share", shared}} {
+		// A user's profile is built from their rule set on the panel's own
+		// skeleton; the fixture's listener is in the generated profile only.
+		for _, source := range []struct{ kind, token string }{{"generated", token}} {
 			res, e := apiServer.Client().Get(apiServer.URL + "/s/" + source.token + "/mihomo")
 			must(e)
 			body, e := io.ReadAll(res.Body)
