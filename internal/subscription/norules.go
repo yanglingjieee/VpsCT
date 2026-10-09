@@ -1,12 +1,14 @@
 package subscription
 
-// NoRulesGroup is the single group of the built-in "no rules" profiles.
-const NoRulesGroup = "节点选择"
-
 // NoRules returns the built-in profile for a template kind: every line in one
 // selector and everything except the local network through it. It is what a
 // user without a rule set gets, and what a rule set falls back to for a
 // client family it was not written for.
+//
+// Shadowrocket has its selector built in: the lines of a profile are listed
+// on its home page and PROXY is the one picked there. A group of its own is
+// chosen on another screen, so tapping a line on the home page would change
+// nothing.
 func NoRules(kind string) string {
 	switch kind {
 	case "shadowrocket":
@@ -81,15 +83,12 @@ udp-policy-not-supported-behaviour = REJECT
 [Proxy]
 {{PROXIES}}
 
-[Proxy Group]
-节点选择 = select,{{all}}
-
 [Rule]
 IP-CIDR,127.0.0.0/8,DIRECT
 IP-CIDR,10.0.0.0/8,DIRECT
 IP-CIDR,172.16.0.0/12,DIRECT
 IP-CIDR,192.168.0.0/16,DIRECT
-FINAL,节点选择
+FINAL,PROXY
 
 [Host]
 localhost = 127.0.0.1

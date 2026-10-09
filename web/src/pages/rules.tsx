@@ -100,11 +100,19 @@ function RuleDialog({ state, none, readOnly, onClose, onSaved }: { state: { rule
           placeholder={`留空：${RULE_KIND_LABELS[kind]} 用户拿到的是「无规则」配置`} />
         {!readOnly && (
           <div className="flex flex-wrap items-start justify-between gap-3 text-xs text-muted-foreground">
-            <p className="min-w-0 flex-1">
-              写一份完整的 {RULE_KIND_LABELS[kind]} 配置，节点由面板填进去：<Code>{"{{all}}"}</Code> 展开成这个用户的全部线路（按节点页的顺序），<Code>{"{{all|正则}}"}</Code> 只取名字匹配的
-              {kind === "shadowrocket" || kind === "surge" ? <>，<Code>{"{{PROXIES}}"}</Code> 放在 [Proxy] 里。</> : "。"}
-              某个分组一条线路都没有时会填成 REJECT，不会变成直连。
-            </p>
+            {kind === "shadowrocket" ? (
+              <p className="min-w-0 flex-1">
+                写一份完整的 Shadowrocket 配置，线路由面板填进去：<Code>{"{{PROXIES}}"}</Code> 放在 [Proxy] 里，线路会列在小火箭的首页。
+                规则的策略写 <Code>PROXY</Code>，它就是用户在首页点中的那条线路；不要为线路另建分组，分组要到另一个页面去选，在首页点线路对它不起作用。
+                用户一条线路都没有时，<Code>PROXY</Code> 会换成 REJECT，不会变成直连。
+              </p>
+            ) : (
+              <p className="min-w-0 flex-1">
+                写一份完整的 {RULE_KIND_LABELS[kind]} 配置，节点由面板填进去：<Code>{"{{all}}"}</Code> 展开成这个用户的全部线路（按节点页的顺序），<Code>{"{{all|正则}}"}</Code> 只取名字匹配的
+                {kind === "surge" ? <>，<Code>{"{{PROXIES}}"}</Code> 放在 [Proxy] 里。</> : "。"}
+                某个分组一条线路都没有时会填成 REJECT，不会变成直连。
+              </p>
+            )}
             {!f[kind].trim() && <Button size="sm" variant="outline" onClick={() => setF((p) => ({ ...p, [kind]: none[kind] }))}>从「无规则」开始改</Button>}
           </div>
         )}

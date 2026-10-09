@@ -236,12 +236,40 @@ func surgeRule(r string) string {
 	return ""
 }
 
+// confComment reports whether a line of a Surge-family profile is a comment.
+// "#!" opens a directive (#!MANAGED-CONFIG, #!include), not a comment.
+func confComment(line string) bool {
+	t := strings.TrimSpace(line)
+	return strings.HasPrefix(t, "#") && !strings.HasPrefix(t, "#!") || strings.HasPrefix(t, ";") || strings.HasPrefix(t, "//")
+}
+
+// A comment may name a placeholder ("{{PROXIES}} goes under [Proxy]") and
+// must not be filled in for it: every node, credentials included, would land
+// outside its section. hideCommentMarkers puts those out of reach while the
+// profile is rendered; showCommentMarkers brings them back.
+const hiddenMarker = "{\x00{"
+
+func hideCommentMarkers(tpl string) string {
+	lines := strings.Split(tpl, "\n")
+	for i, l := range lines {
+		if confComment(l) {
+			lines[i] = strings.ReplaceAll(l, "{{", hiddenMarker)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func showCommentMarkers(out string) string {
+	return strings.ReplaceAll(out, hiddenMarker, "{{")
+}
+
 // RenderSurge produces a Surge profile.
 func RenderSurge(b *Bundle) (*Rendered, error) {
 	tpl := builtinSurgeTemplate
 	if b.Template != nil && b.Template.Kind == "surge" && strings.TrimSpace(b.Template.Content) != "" {
 		tpl = b.Template.Content
 	}
+	tpl = hideCommentMarkers(tpl)
 	var proxyLines, groupLines, ruleLines []string
 	emitted := map[string]bool{}
 	for _, p := range b.Proxies {
@@ -328,6 +356,7 @@ func RenderSurge(b *Bundle) (*Rendered, error) {
 			out = info + out
 		}
 	}
+	out = showCommentMarkers(out)
 	return &Rendered{Body: []byte(out), ContentType: "text/plain; charset=utf-8", Filename: b.Name + ".conf", Format: FormatSurge}, nil
 }
 

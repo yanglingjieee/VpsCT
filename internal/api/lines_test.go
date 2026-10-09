@@ -130,7 +130,9 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	if clash := render(yang, "mihomo"); !strings.Contains(clash, "MATCH,节点选择") {
 		t.Fatal("a family the rule set was not written for falls back to no rules")
 	}
-	if sr := render(san, "shadowrocket"); !strings.Contains(sr, "节点选择 = select,直连") {
+	// Shadowrocket lists the lines on its home page and PROXY is the one
+	// tapped there; a group of the profile's own would ignore that tap.
+	if sr := render(san, "shadowrocket"); !strings.Contains(sr, "直连 = vless, ") || !strings.Contains(sr, "FINAL,PROXY") || strings.Contains(sr, "[Proxy Group]") {
 		t.Fatalf("no-rules shadowrocket:\n%s", sr)
 	}
 	c.do("POST", "/api/v1/rulesets/"+itoa(rules["id"])+"/default", nil, 204)
@@ -161,7 +163,7 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	if page = c.do("GET", "/s/"+poolToken+"?page=1", nil, 200); page["delivery"] != "nodes" || len(page["nodes"].([]any)) != 2 || page["rules"] != "无规则" {
 		t.Fatalf("carpool page: %v", page)
 	}
-	if sr := render(pool, "shadowrocket"); !strings.Contains(sr, "节点选择 = select,直连,家宽") {
+	if sr := render(pool, "shadowrocket"); !strings.Contains(sr, "FINAL,PROXY") || strings.Contains(sr, "我的线路") {
 		t.Fatal("node-only users never get a rule set")
 	}
 

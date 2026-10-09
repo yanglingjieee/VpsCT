@@ -134,12 +134,72 @@ func ShadowrocketProxyLine(p proxynode.Proxy, via string) string {
 	return surgeIdent(p.Name) + " = " + strings.Join(parts, ", ")
 }
 
-// RenderShadowrocket produces a full Shadowrocket .conf (groups + rules + nodes).
+// ruleFields splits a rule on the commas outside parentheses, so the
+// sub-rules of AND / OR / NOT stay whole.
+func ruleFields(rule string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i, r := range rule {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, rule[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, rule[start:])
+}
+
+// rejectProxyPolicy points every rule whose policy is PROXY at REJECT. In
+// Shadowrocket PROXY is the node picked on the home page, which no profile
+// defines: a user left without lines must stop working, not go through
+// whatever else their app holds.
+func rejectProxyPolicy(conf string) string {
+	lines := strings.Split(conf, "\n")
+	inRules := false
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "[") {
+			inRules = strings.EqualFold(t, "[Rule]")
+			continue
+		}
+		if !inRules || t == "" || confComment(l) {
+			continue
+		}
+		f := ruleFields(l)
+		at := 2
+		if typ := strings.ToUpper(strings.TrimSpace(f[0])); typ == "FINAL" || typ == "MATCH" {
+			at = 1
+		}
+		if at >= len(f) {
+			continue
+		}
+		policy, note, noted := strings.Cut(f[at], "//")
+		if !strings.EqualFold(strings.TrimSpace(policy), "PROXY") {
+			continue
+		}
+		f[at] = EmptyGroupPolicy
+		if noted {
+			f[at] += " //" + note
+		}
+		lines[i] = strings.Join(f, ",")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// RenderShadowrocket produces a full Shadowrocket .conf (rules + nodes, and
+// groups when the template has any).
 func RenderShadowrocket(b *Bundle) (*Rendered, error) {
 	tpl := builtinShadowrocketTemplate
 	if b.Template != nil && b.Template.Kind == "shadowrocket" && strings.TrimSpace(b.Template.Content) != "" {
 		tpl = b.Template.Content
 	}
+	tpl = hideCommentMarkers(tpl)
 	var proxyLines []string
 	emitted := map[string]bool{}
 	for _, p := range b.Proxies {
@@ -188,6 +248,10 @@ func RenderShadowrocket(b *Bundle) (*Rendered, error) {
 	out = strings.ReplaceAll(out, "{{RULES}}", strings.Join(ruleLines, "\n"))
 	out = strings.ReplaceAll(out, "{{NAME}}", surgeHeaderName(b.Name))
 	out = expandAllTokens(out, allNames)
+	if len(allNames) == 0 {
+		out = rejectProxyPolicy(out)
+	}
+	out = showCommentMarkers(out)
 	return &Rendered{Body: []byte(out), ContentType: "text/plain; charset=utf-8", Filename: b.Name + ".conf", Format: FormatShadowrocket}, nil
 }
 
