@@ -81,7 +81,7 @@ func TestShareLifecycle(t *testing.T) {
 	// leftover editor groups on old rows must not replace the user's rules
 	sub.ProxyGroups = []domain.ProxyGroup{{Name: "旧分组", Type: "select", IncludeAll: true}}
 	sub.Rules = []string{"MATCH,旧分组"}
-	rendered, _, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatMihomo)
+	rendered, _, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatMihomo, "https://panel.example.test")
 	if err != nil {
 		t.Fatal(err)
 	}

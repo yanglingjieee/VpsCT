@@ -275,8 +275,13 @@ main() {
   trap 'exit 143' TERM
   info '准备安装依赖'
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y --no-install-recommends ca-certificates curl tar coreutils
+  # The package lists are refreshed only when something is missing: one
+  # third-party source that does not answer must not stop an upgrade that
+  # needs nothing from it.
+  if ! dpkg -s ca-certificates curl tar coreutils >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y --no-install-recommends ca-certificates curl tar coreutils
+  fi
   if [[ "$VERSION" == latest ]]; then
     [[ -z "$ASSETS_DIR" ]] || die '--assets-dir 必须同时指定确切 --version'
     local resolved

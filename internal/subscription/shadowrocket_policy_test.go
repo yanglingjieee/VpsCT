@@ -5,18 +5,23 @@ import (
 	"testing"
 
 	"ctlvps/internal/domain"
+	"ctlvps/internal/ruleset"
 )
 
 // The line a Shadowrocket user taps on the home page is PROXY; a group of the
 // profile's own is chosen elsewhere and would ignore that tap.
-func TestShadowrocketNoRulesFollowsHomeSelection(t *testing.T) {
-	b := &Bundle{Name: "demo", Proxies: sampleBundle().Proxies, Template: &domain.RuleTemplate{Kind: "shadowrocket", Content: NoRules("shadowrocket")}}
+func TestShadowrocketFollowsHomeSelection(t *testing.T) {
+	profile, err := Profile("shadowrocket", ruleset.Default, "", "https://panel.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bundle{Name: "demo", Proxies: sampleBundle().Proxies, Template: &domain.RuleTemplate{Kind: "shadowrocket", Content: profile}}
 	r, err := RenderShadowrocket(b)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(r.Body)
-	for _, want := range []string{"HK Reality = vless, hk.example.com, 443", "FINAL,PROXY"} {
+	for _, want := range []string{"HK Reality = vless, hk.example.com, 443", "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve", "FINAL,PROXY"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
 		}

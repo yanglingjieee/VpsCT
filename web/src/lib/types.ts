@@ -457,28 +457,37 @@ export interface PersonNode {
   uri: string;
 }
 
-export type RuleKind = "mihomo" | "shadowrocket" | "surge" | "singbox";
+/** A client family a profile is built for. */
+export type ProfileKind = "mihomo" | "shadowrocket";
 
+/** One list of rules for every client: each line says what to match and whether it takes the chosen line, goes direct or is refused. */
 export interface Ruleset {
   id: number;
   name: string;
   description: string;
-  mihomo: string;
-  shadowrocket: string;
-  surge: string;
-  singbox: string;
+  rules: string;
+  /** What the selector of lines is called in clients that show one. */
+  group_name: string;
   sort_order: number;
-  formats: RuleKind[];
   users: number;
   default: boolean;
   updated_at: string;
+}
+
+/** A published list a RULE-SET rule names. */
+export interface RuleList {
+  name: string;
+  kind: "domain" | "ipcidr" | "classical";
+  about: string;
 }
 
 export interface RulesetList {
   list: Ruleset[];
   none_users: number;
   default_id: number;
-  none: Record<RuleKind, string>;
+  /** What a user without a rule set gets. */
+  none: { rules: string; group_name: string };
+  lists: RuleList[];
 }
 
 /** What a user sees when opening their own link in a browser. */
@@ -494,7 +503,7 @@ export interface PersonalPage {
   next_reset?: string;
   expires_at?: string;
   lines: { name: string; total: number; ready: boolean }[];
-  formats: RuleKind[];
+  formats: ProfileKind[];
   rules: string;
   nodes?: PersonNode[];
   url: string;

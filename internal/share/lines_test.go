@@ -182,7 +182,7 @@ func TestLineSharesGetTheirOwnCredentials(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r, b, err := svc.Render(ctx, sub, format)
+		r, b, err := svc.Render(ctx, sub, format, "https://panel.example.test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -468,7 +468,7 @@ func TestLinesOnOtherProtocols(t *testing.T) {
 		}
 	}
 	sub, _ := st.GetSubscriptionByShare(ctx, a.ID)
-	r, bundle, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatMihomo)
+	r, bundle, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatMihomo, "https://panel.example.test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func TestLinesOnOtherProtocols(t *testing.T) {
 	if strings.Join(bundle.AllProxyNames(), "|") != "QUIC|Relay" || !strings.Contains(body, "type: hysteria2") || !strings.Contains(body, "type: trojan") || strings.Contains(body, "99.0.0.9") {
 		t.Fatalf("profile: %v\n%s", bundle.AllProxyNames(), body[:min(len(body), 1500)])
 	}
-	uris, _, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatURIList)
+	uris, _, err := subscription.NewService(st).Render(ctx, sub, subscription.FormatURIList, "https://panel.example.test")
 	if err != nil || !strings.Contains(string(uris.Body), "hysteria2://") || !strings.Contains(string(uris.Body), "trojan://") {
 		t.Fatalf("node links: %v\n%s", err, uris.Body)
 	}

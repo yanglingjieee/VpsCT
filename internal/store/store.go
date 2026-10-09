@@ -130,6 +130,12 @@ func (s *Store) migrate() error {
 				return fmt.Errorf("migration %d: %w", i+1, err)
 			}
 		}
+		if migrations[i] == rulesetUnifyMigration {
+			if err := unifyRulesets(ctx, tx); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("migration %d: %w", i+1, err)
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM schema_version`); err != nil {
 			tx.Rollback()
 			return err

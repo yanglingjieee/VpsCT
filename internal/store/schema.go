@@ -810,4 +810,13 @@ CREATE TABLE probe_stats (
   rtt_max INTEGER NOT NULL,
   PRIMARY KEY (server_id, target_id, res, ts)
 ) WITHOUT ROWID;`,
+	// v39: a rule set is one list of rules for every client, not a profile
+	// written per client family; each rule set's Clash profile is read for
+	// its rules and the name of its selector (see unifyRulesets).
+	rulesetUnifyMigration,
+	// v40
+	`ALTER TABLE rulesets DROP COLUMN mihomo;
+ALTER TABLE rulesets DROP COLUMN shadowrocket;
+ALTER TABLE rulesets DROP COLUMN surge;
+ALTER TABLE rulesets DROP COLUMN singbox;`,
 }

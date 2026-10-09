@@ -14,7 +14,7 @@
 | 线路 | 用户在客户端里看到的一个节点：直连一个入站，或入口入站中转到落地入站 | `domain.Line` |
 | 用户 | 一个使用者：线路范围、规则、限额、专属链接 | `domain.Share` 加它关联的 `Subscription` |
 | 用户凭据 | 用户在某条线路的某台机器上的凭据，各自计量 | `domain.Node`，有 `attach_node_id`、`line_id`；落地一侧 `landing=true` |
-| 规则 | 一套规则给每种客户端各写一份 | `domain.Ruleset`；没有规则时用 `subscription.NoRules` |
+| 规则 | 只有一份清单：一行一条“匹配什么 → PROXY / DIRECT / REJECT”，Clash 和小火箭的配置都由它生成 | `domain.Ruleset`（`rules`、`group_name`）；清单的写法和内置默认在 `internal/ruleset`，生成配置在 `subscription.Profile` |
 
 几条必须保持的性质：
 
@@ -29,7 +29,8 @@
 - **探测目标是面板里的内容**（`probe_targets`），所有服务器都探；只有入口机的结果会触发 Telegram 提醒。
 - **落地要能被入口机确认身份**（`domain.LandingProblem`）：VLESS Reality（公钥）、Shadowsocks 2022（密钥）、Hysteria2（面板签发的证书，`provision.IssueCertificate`，存在入站的 `tls_cert` / `tls_key` 里，DER 的 base64；入口机拿到的是 `RelaySpec.Cert`）。不要为了让某个协议能做落地去加 `insecure`。Hysteria2 落地是给“新建连接会丢包、长连接稳定”的落地机用的：每个用户到落地机只有一条 QUIC 连接。
 - **不回退直连**：分组里没有线路时填 `REJECT`（`subscription.EmptyGroupPolicy`）。
-- **小火箭的线路在首页选**：配置里 [Proxy] 的节点列在小火箭首页，规则里的 `PROXY` 就是首页点中的那一条。给小火箭的规则用 `PROXY`，不为线路建 select 分组（分组在另一个页面选，首页点线路对它不起作用，流量会一直走分组的第一条）。用户没有线路时渲染器把 `PROXY` 换成 `REJECT`。
+- **规则只写一份，不按客户端分**（用户 2026-10-09 定的）：不要再给某个客户端加一份手写的配置或模板。客户端之间的差别写在代码里：`subscription.skeletonMihomo` / `skeletonShadowrocket` 是各自的底板（监听、DNS、嗅探），`mihomoProfile` / `shadowrocketProfile` 把同一份清单翻成各自的写法。Clash 里 `PROXY` 是名为 `group_name` 的 select 分组；小火箭里就是 `PROXY` 本身，即首页点中的那条线路，不建分组（分组在另一个页面选，首页点线路对它不起作用，2026-10-09 出过这个故障）。用户没有线路时两边的 `PROXY` 都变成 `REJECT`。
+- **分流名单**（`ruleset.Lists`）是 `RULE-SET` 能引用的全部名字，文件由面板域名下的 `/rules/clash/<名字>.yaml`、`/rules/surge/<名字>.list` 提供（部署方每天从 Loyalsoldier/clash-rules 镜像）。加名单要两边一起加。
 - 用户的专属链接是 `/r/<24 位>`：浏览器打开返回前端的个人页（`web/src/pages/public.tsx`，数据来自同一地址加 `?page=1`），客户端打开返回配置。小火箭和 Surge 用地址末段给配置起名，一键导入给它们的是带名字的形式 `/r/<码>/<格式>/<站点名>`（名字只是给客户端看的，服务端不读）；各客户端里配置的名字一律是站点名，不是用户名。
 
 ## 2. 代码在哪
@@ -43,7 +44,8 @@
 | `internal/share` | 用户（上游叫分享）；`lines.go` 负责按线路发放和回收凭据 |
 | `internal/desired` | 把库里的内容算成下发给 agent 的状态，含中转目标和落地来源限制 |
 | `internal/core/singbox.go` | 生成 sing-box 服务端配置 |
-| `internal/subscription` | 各客户端格式的渲染；`lines.go` 按线路出节点，`norules.go` 是内置无规则 |
+| `internal/subscription` | 各客户端格式的渲染；`lines.go` 按线路出节点，`profile.go` 从规则清单生成 Clash / 小火箭配置，`skeleton.go` 是两种客户端的底板 |
+| `internal/ruleset` | 规则清单：解析、可用名单、内置默认、旧版 Clash 配置的转换 |
 | `internal/store/schema.go` | 数据库迁移；本分支从 v31 开始 |
 | `internal/liveproto`、`internal/agentlive`、`internal/live` | 实时通道：消息格式、agent 端的子进程（采样和 TCP 探测）、控制端的 Hub（内存里的现状、按分钟落库）；`internal/hostmetrics` 是读 `/proc` 的公共代码 |
 | `internal/report` | Telegram 推送：每件事从发生到解决各说一次（`incidents` 表记着说过什么），以及日报。只推送，不接收消息 |
@@ -62,7 +64,7 @@
 ## 4. 别做的事
 
 - 不要把节点密码、订阅 token、专属链接、SSH 主机 IP 写进仓库或回复。
-- 不要把个人域名、个人 IP 写进产品内置的配置（`norules.go` 等）；用户自己的规则在面板的数据里。
+- 不要把个人域名、个人 IP 写进产品内置的配置（`skeleton.go`、`ruleset.Default` 等）；用户自己的规则在面板的数据里。
 - sing-box 只用官方发行版；不修改或自行编译内核。
 - 流量口径：入站 = 网卡收，出站 = 网卡发。用户的限额按汇总；服务器的配额按 `quota_billing`：`dual` 汇总，`out` 只算出站。用户凭据在远端一侧计量，入账时已换成用户视角的上传/下载。
 - 重置日：1–28 固定那天；29/30/31 都是“每月最后一天”（存 31）。新的一期从那天 0 点开始，时区是设置 `quota.timezone`（`store.Location()`）；`traffic.PeriodStart` 按传入时间自带的时区计算，调用前先 `.In(...)`。

@@ -110,25 +110,40 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	c.do("PUT", "/api/v1/nodes/"+itoa(member["id"]), map[string]any{"name": "x"}, 400)
 	c.do("POST", "/api/v1/nodes/"+itoa(member["id"])+"/regenerate", nil, 400)
 
-	// Rules: written once per client family; without a rule set, or for a
-	// family it was not written for, a user gets the built-in "no rules".
-	if !strings.Contains(yangBody, "name: 节点选择") || !strings.Contains(yangBody, "MATCH,节点选择") {
+	// Rules: one list for every client. Without a rule set a user gets the
+	// built-in default, where everything but the local network takes the
+	// chosen line.
+	if !strings.Contains(yangBody, "name: 节点选择") || !strings.Contains(yangBody, "MATCH,节点选择") || !strings.Contains(yangBody, "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve") {
 		t.Fatalf("no rules by default:\n%s", yangBody)
 	}
-	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "mihomo": "proxies: [\n"}, 400)
-	rules := c.do("POST", "/api/v1/rulesets", map[string]any{"name": "我的规则", "shadowrocket": "[Proxy]\n{{PROXIES}}\n[Proxy Group]\n我的线路 = select,{{all}}\n[Rule]\nDOMAIN-SUFFIX,cn,DIRECT\nFINAL,我的线路\n"}, 201)
-	if f := rules["formats"].([]any); len(f) != 1 || f[0] != "shadowrocket" {
-		t.Fatalf("formats: %v", f)
-	}
+	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "rules": "DOMAIN-SUFFIX,cn\n"}, 400)
+	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "rules": "RULE-SET,nonesuch,DIRECT\n"}, 400)
+	c.do("POST", "/api/v1/rulesets", map[string]any{"name": "坏", "rules": "MATCH,PROXY\n", "group_name": "DIRECT"}, 400)
+	rules := c.do("POST", "/api/v1/rulesets", map[string]any{"name": "我的规则", "group_name": "我的线路",
+		"rules": "# 国内直连\nDOMAIN-SUFFIX,cn,DIRECT\nRULE-SET,direct,DIRECT\nRULE-SET,cncidr,DIRECT,no-resolve\nRULE-SET,applications,DIRECT\nDOMAIN,ads.example,REJECT\nFINAL,PROXY\n"}, 201)
 	yang = c.do("PUT", "/api/v1/shares/"+itoa(yang["id"]), map[string]any{"name": "YANG", "line_mode": "all", "quota_bytes": 1 << 30, "reset_day": 1, "ruleset_id": rules["id"]}, 200)
-	if yang["ruleset_name"] != "我的规则" || len(yang["formats"].([]any)) != 1 {
+	if yang["ruleset_name"] != "我的规则" || len(yang["formats"].([]any)) != 2 {
 		t.Fatalf("rule set not applied: %v %v", yang["ruleset_name"], yang["formats"])
 	}
-	if sr := render(yang, "shadowrocket"); !strings.Contains(sr, "我的线路 = select,直连,家宽") || !strings.Contains(sr, "DOMAIN-SUFFIX,cn,DIRECT") || strings.Contains(sr, "underlying-proxy") {
-		t.Fatalf("shadowrocket rules:\n%s", sr)
+	// The same rules reach both client families, each in its own terms: a
+	// selector of lines for Clash, the line tapped on the home page (PROXY)
+	// for Shadowrocket, and the lists from where the panel serves them.
+	sr := render(yang, "shadowrocket")
+	for _, want := range []string{"直连 = vless, ", "家宽 = vless, ", "DOMAIN-SUFFIX,cn,DIRECT", "RULE-SET," + c.srv.URL + "/rules/surge/direct.list,DIRECT",
+		"RULE-SET," + c.srv.URL + "/rules/surge/cncidr.list,DIRECT\n", "DOMAIN,ads.example,REJECT", "FINAL,PROXY"} {
+		if !strings.Contains(sr, want) {
+			t.Fatalf("shadowrocket lacks %q:\n%s", want, sr)
+		}
 	}
-	if clash := render(yang, "mihomo"); !strings.Contains(clash, "MATCH,节点选择") {
-		t.Fatal("a family the rule set was not written for falls back to no rules")
+	if strings.Contains(sr, "[Proxy Group]") || strings.Contains(sr, "我的线路") || strings.Contains(sr, "applications") || strings.Contains(sr, "underlying-proxy") {
+		t.Fatalf("shadowrocket: no group, no list only Clash can read, no chain:\n%s", sr)
+	}
+	clash := render(yang, "mihomo")
+	for _, want := range []string{"name: 我的线路", "DOMAIN-SUFFIX,cn,DIRECT", "RULE-SET,direct,DIRECT", "RULE-SET,cncidr,DIRECT,no-resolve", "RULE-SET,applications,DIRECT", "MATCH,我的线路",
+		"behavior: ipcidr", "behavior: classical", c.srv.URL + "/rules/clash/direct.yaml", "https://1.1.1.1/dns-query#我的线路", "rule-set:direct", "+.cn"} {
+		if !strings.Contains(clash, want) {
+			t.Fatalf("clash lacks %q:\n%s", want, clash)
+		}
 	}
 	// Shadowrocket lists the lines on its home page and PROXY is the one
 	// tapped there; a group of the profile's own would ignore that tap.
@@ -146,7 +161,7 @@ func TestLinesGiveEveryUserTheirOwnCredentials(t *testing.T) {
 	// A user's own link: their page in a browser, their profile in a client.
 	token := yang["subscription"].(map[string]any)["token"].(string)
 	page := c.do("GET", "/s/"+token+"?page=1", nil, 200)
-	if page["name"] != "YANG" || page["rules"] != "我的规则" || len(page["lines"].([]any)) != 2 || len(page["formats"].([]any)) != 1 || !strings.HasSuffix(page["url"].(string), "/s/"+token) || page["nodes"] != nil {
+	if page["name"] != "YANG" || page["rules"] != "我的规则" || len(page["lines"].([]any)) != 2 || len(page["formats"].([]any)) != 2 || !strings.HasSuffix(page["url"].(string), "/s/"+token) || page["nodes"] != nil {
 		t.Fatalf("personal page: %v", page)
 	}
 	if l := page["lines"].([]any)[1].(map[string]any); l["name"] != "家宽" || l["entry_server"] != "" || l["landing_server"] != nil {

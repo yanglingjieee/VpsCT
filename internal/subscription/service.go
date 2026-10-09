@@ -12,6 +12,7 @@ import (
 
 	"ctlvps/internal/domain"
 	"ctlvps/internal/proxynode"
+	"ctlvps/internal/ruleset"
 	"ctlvps/internal/store"
 	"ctlvps/internal/traffic"
 )
@@ -535,58 +536,51 @@ func (s *Service) applySubQuota(ui *Userinfo, sub domain.Subscription, now time.
 	}
 }
 
-// Render builds and renders a subscription in the given format.
-func (s *Service) Render(ctx context.Context, sub domain.Subscription, format string) (*Rendered, *Bundle, error) {
+// Render builds and renders a subscription in the given format. site is the
+// panel's public address: a profile fetches the lists its rules name there.
+func (s *Service) Render(ctx context.Context, sub domain.Subscription, format, site string) (*Rendered, *Bundle, error) {
 	b, err := s.Build(ctx, sub)
 	if err != nil {
 		return nil, nil, err
 	}
-	// A user's rules come from their rule set, written once per client
-	// family, so one link works everywhere.
+	// A user's profile is built from their rule set, which is one list of
+	// rules for every client, so one link works everywhere.
 	if sub.Kind == domain.SubShare && sub.ShareID != nil {
-		if kind := templateKind(format); kind != "" {
-			b.Template = &domain.RuleTemplate{Kind: kind, Content: s.ShareRules(ctx, *sub.ShareID, kind)}
+		if kind := templateKind(format); kind == "mihomo" || kind == "shadowrocket" {
+			rules, group := s.ShareRules(ctx, *sub.ShareID)
+			profile, err := Profile(kind, rules, group, site)
+			if err != nil {
+				return nil, nil, err
+			}
+			b.Template = &domain.RuleTemplate{Kind: kind, Content: profile}
 		}
 	}
 	r, err := RenderBundle(b, format)
 	return r, b, err
 }
 
-// TemplateKinds lists the client families a rule set can be written for.
-var TemplateKinds = []string{"mihomo", "shadowrocket", "surge", "singbox"}
+// ProfileKinds lists the client families a profile is built for.
+var ProfileKinds = []string{"mihomo", "shadowrocket"}
 
-// ShareRules returns the profile template a user gets for a client family:
-// their rule set's, or the built-in "no rules" when they have none, receive
-// plain nodes, or the rule set was not written for that family.
-func (s *Service) ShareRules(ctx context.Context, shareID int64, kind string) string {
+// ShareRules returns the rules a user's profile is built from and the name of
+// the selector of lines: their rule set's, or the built-in default when they
+// have none or receive plain nodes.
+func (s *Service) ShareRules(ctx context.Context, shareID int64) (rules, group string) {
 	if sh, err := s.Store.GetShare(ctx, shareID); err == nil && sh.Delivery != domain.DeliveryNodes && sh.RulesetID != nil {
-		if rs, err := s.Store.GetRuleset(ctx, *sh.RulesetID); err == nil && strings.TrimSpace(rs.Content(kind)) != "" {
-			return rs.Content(kind)
+		if rs, err := s.Store.GetRuleset(ctx, *sh.RulesetID); err == nil && strings.TrimSpace(rs.Rules) != "" {
+			return rs.Rules, rs.GroupName
 		}
 	}
-	return NoRules(kind)
+	return ruleset.Default, ruleset.DefaultGroup
 }
 
-// ShareFormats lists the client families worth offering a user: all of them
-// without a rule set, otherwise the ones the rule set was written for.
-func (s *Service) ShareFormats(ctx context.Context, sh domain.Share) []string {
+// ShareFormats lists the client families to offer a user a profile for; none
+// when they receive plain nodes.
+func (s *Service) ShareFormats(_ context.Context, sh domain.Share) []string {
 	if sh.Delivery == domain.DeliveryNodes {
 		return []string{}
 	}
-	if sh.RulesetID != nil {
-		if rs, err := s.Store.GetRuleset(ctx, *sh.RulesetID); err == nil {
-			out := []string{}
-			for _, k := range TemplateKinds {
-				if strings.TrimSpace(rs.Content(k)) != "" {
-					out = append(out, k)
-				}
-			}
-			if len(out) > 0 {
-				return out
-			}
-		}
-	}
-	return append([]string{}, TemplateKinds...)
+	return append([]string{}, ProfileKinds...)
 }
 
 func templateKind(format string) string {

@@ -268,34 +268,21 @@ const (
 	DeliveryNodes   = "nodes"
 )
 
-// Ruleset is one set of routing rules written once per client family, so a
-// single user link works in every client.
+// Ruleset is one set of routing rules, written once for every client: each
+// line says what to match and whether it takes the line the user picked
+// (PROXY), goes straight out (DIRECT) or nowhere (REJECT). The panel builds
+// each client family's profile from it.
 type Ruleset struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	Mihomo       string    `json:"mihomo"`
-	Shadowrocket string    `json:"shadowrocket"`
-	Surge        string    `json:"surge"`
-	SingBox      string    `json:"singbox"`
-	SortOrder    int       `json:"sort_order"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-// Content returns the rules for a template kind ("" when not written).
-func (r Ruleset) Content(kind string) string {
-	switch kind {
-	case "mihomo":
-		return r.Mihomo
-	case "shadowrocket":
-		return r.Shadowrocket
-	case "surge":
-		return r.Surge
-	case "singbox":
-		return r.SingBox
-	}
-	return ""
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Rules       string `json:"rules"`
+	// GroupName is what the selector of lines is called in clients that
+	// show one; they remember the user's choice under this name.
+	GroupName string    `json:"group_name"`
+	SortOrder int       `json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // SettingDefaultRuleset is the rule set given to new users (0 = no rules).

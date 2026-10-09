@@ -149,7 +149,7 @@ func (a *API) serveSub(w http.ResponseWriter, r *http.Request, sub domain.Subscr
 	if format == "" {
 		format = sub.DefaultFormat
 	}
-	rendered, bundle, err := a.Subs.Render(ctx, sub, format)
+	rendered, bundle, err := a.Subs.Render(ctx, sub, format, a.baseURL(r))
 	if err != nil {
 		a.Logger.Warn("render subscription", "sub", sub.ID, "err", err)
 		return fail(http.StatusInternalServerError, "render_failed", "render failed")

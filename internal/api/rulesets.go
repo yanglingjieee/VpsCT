@@ -7,15 +7,14 @@ import (
 
 	"ctlvps/internal/domain"
 	"ctlvps/internal/httpx"
-	"ctlvps/internal/subscription"
+	"ctlvps/internal/ruleset"
 )
 
-// RulesetView adds what the list shows without loading every profile.
+// RulesetView adds what the list shows about a rule set.
 type RulesetView struct {
 	domain.Ruleset
-	Formats []string `json:"formats"` // client families it was written for
-	Users   int      `json:"users"`
-	Default bool     `json:"default"`
+	Users   int  `json:"users"`
+	Default bool `json:"default"`
 }
 
 func (a *API) rulesetViews(r *http.Request, list []domain.Ruleset) []RulesetView {
@@ -23,12 +22,7 @@ func (a *API) rulesetViews(r *http.Request, list []domain.Ruleset) []RulesetView
 	def := int64(a.Store.GetSettingInt(r.Context(), domain.SettingDefaultRuleset, 0))
 	out := make([]RulesetView, 0, len(list))
 	for _, rs := range list {
-		v := RulesetView{Ruleset: rs, Formats: []string{}, Default: rs.ID == def}
-		for _, k := range subscription.TemplateKinds {
-			if strings.TrimSpace(rs.Content(k)) != "" {
-				v.Formats = append(v.Formats, k)
-			}
-		}
+		v := RulesetView{Ruleset: rs, Default: rs.ID == def}
 		for _, sh := range shares {
 			if sh.RulesetID != nil && *sh.RulesetID == rs.ID && sh.Status != domain.ShareRevoked {
 				v.Users++
@@ -39,8 +33,9 @@ func (a *API) rulesetViews(r *http.Request, list []domain.Ruleset) []RulesetView
 	return out
 }
 
-// listRulesets also reports the built-in "no rules" profile, which is not a
-// row: who uses it and whether it is the default for new users.
+// listRulesets also reports what a user without a rule set gets, which is
+// not a row (who uses it, and whether it is the default for new users), and
+// the lists a rule may name.
 func (a *API) listRulesets(w http.ResponseWriter, r *http.Request) error {
 	list, err := a.Store.ListRulesets(r.Context())
 	if err != nil {
@@ -53,47 +48,44 @@ func (a *API) listRulesets(w http.ResponseWriter, r *http.Request) error {
 			plain++
 		}
 	}
-	builtin := map[string]string{}
-	for _, k := range subscription.TemplateKinds {
-		builtin[k] = subscription.NoRules(k)
-	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
 		"list":       a.rulesetViews(r, list),
 		"none_users": plain,
 		"default_id": a.Store.GetSettingInt(r.Context(), domain.SettingDefaultRuleset, 0),
-		"none":       builtin,
+		"none":       map[string]string{"rules": ruleset.Default, "group_name": ruleset.DefaultGroup},
+		"lists":      ruleset.Lists,
 	})
 	return nil
 }
 
 type rulesetInput struct {
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Mihomo       string `json:"mihomo"`
-	Shadowrocket string `json:"shadowrocket"`
-	Surge        string `json:"surge"`
-	SingBox      string `json:"singbox"`
-	SortOrder    int    `json:"sort_order"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Rules       string `json:"rules"`
+	GroupName   string `json:"group_name"`
+	SortOrder   int    `json:"sort_order"`
 }
 
-// apply stores the profiles after rendering each once: a profile that does
-// not parse would break every user's next refresh.
+// apply stores the rules after reading them once: a line that cannot be read
+// would break every user's next refresh.
 func (in rulesetInput) apply(rs *domain.Ruleset) error {
 	rs.Name, rs.Description, rs.SortOrder = strings.TrimSpace(in.Name), strings.TrimSpace(in.Description), in.SortOrder
-	rs.Mihomo, rs.Shadowrocket, rs.Surge, rs.SingBox = in.Mihomo, in.Shadowrocket, in.Surge, in.SingBox
-	labels := map[string]string{"mihomo": "Clash / Mihomo", "shadowrocket": "Shadowrocket", "surge": "Surge", "singbox": "sing-box"}
-	for _, k := range subscription.TemplateKinds {
-		content := rs.Content(k)
-		if strings.TrimSpace(content) == "" {
-			continue
-		}
-		if len(content) > 1<<20 {
-			return httpx.BadRequest(labels[k] + " 的规则超过 1 MB")
-		}
-		b := &subscription.Bundle{Name: "check", Template: &domain.RuleTemplate{Kind: k, Content: content}}
-		if _, err := subscription.RenderBundle(b, k); err != nil {
-			return httpx.BadRequest(labels[k] + "：" + err.Error())
-		}
+	rs.Rules = strings.ReplaceAll(in.Rules, "\r\n", "\n")
+	if rs.GroupName = strings.TrimSpace(in.GroupName); rs.GroupName == "" {
+		rs.GroupName = ruleset.DefaultGroup
+	}
+	if len(rs.Rules) > 1<<20 {
+		return httpx.BadRequest("规则超过 1 MB")
+	}
+	if len(rs.GroupName) > 64 || strings.ContainsAny(rs.GroupName, ",\r\n\t\"'#") {
+		return httpx.BadRequest("线路组的名字不能超过 64 个字符，也不能有逗号、引号和 #")
+	}
+	switch strings.ToUpper(rs.GroupName) {
+	case ruleset.ActionProxy, ruleset.ActionDirect, ruleset.ActionReject:
+		return httpx.BadRequest("线路组不能叫 PROXY、DIRECT 或 REJECT")
+	}
+	if _, err := ruleset.Parse(rs.Rules); err != nil {
+		return httpx.BadRequest(err.Error())
 	}
 	return nil
 }

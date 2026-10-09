@@ -363,7 +363,7 @@ func (a *API) renderSubscription(w http.ResponseWriter, r *http.Request) error {
 	if format == "" {
 		format = s.DefaultFormat
 	}
-	rendered, bundle, err := a.Subs.Render(r.Context(), s, format)
+	rendered, bundle, err := a.Subs.Render(r.Context(), s, format, a.baseURL(r))
 	if err != nil {
 		return httpx.BadRequest(err.Error())
 	}
@@ -387,7 +387,7 @@ func (a *API) previewSubscription(w http.ResponseWriter, r *http.Request) error 
 	if in.Format == "" {
 		in.Format = s.DefaultFormat
 	}
-	rendered, bundle, err := a.Subs.Render(r.Context(), s, in.Format)
+	rendered, bundle, err := a.Subs.Render(r.Context(), s, in.Format, a.baseURL(r))
 	if err != nil {
 		return httpx.BadRequest(err.Error())
 	}
